@@ -2,127 +2,136 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
-# 1. Configuration de la page
-st.set_page_config(page_title="VenteUp Pro", layout="wide")
-
-# --- CONFIGURATION ISSA DIALLO ---
-COMPTE_PAYCARD = "379 705 545"
-PRIX = "50 000 GNF"
+# 1. Configuration
+st.set_page_config(page_title="VenteUp Ultimate", layout="wide")
 
 # --- INITIALISATION ---
-if 'date_install' not in st.session_state:
-    st.session_state.date_install = datetime.now()
-if 'licence_active' not in st.session_state:
-    st.session_state.licence_active = False
-if 'mdp_secret' not in st.session_state:
-    st.session_state.mdp_secret = ""
-if 'authentifie' not in st.session_state:
-    st.session_state.authentifie = False
+if 'licence_active' not in st.session_state: st.session_state.licence_active = False
+if 'date_install' not in st.session_state: st.session_state.date_install = datetime.now()
+if 'boutique_info' not in st.session_state:
+    st.session_state.boutique_info = {"nom": "Ma Boutique", "adresse": "Conakry", "tel": "6XX XX XX XX"}
+if 'stock' not in st.session_state:
+    st.session_state.stock = pd.DataFrame(columns=["Produit", "Prix Achat", "Prix Vente", "Quantité"])
+if 'ventes' not in st.session_state:
+    st.session_state.ventes = pd.DataFrame(columns=["Date", "Produit", "Qte", "Prix Vendu", "Bénéfice", "Statut"])
 
-# Calcul de l'essai
+# Calcul essai
 jours_restants = 7 - (datetime.now() - st.session_state.date_install).days
 
-# --- LOGIQUE D'AFFICHAGE ---
-
-# 1. SI L'ESSAI EST FINI ET NON PAYÉ
+# --- LOGIQUE D'ACCÈS (PAYCARD 379 705 545) ---
 if jours_restants <= 0 and not st.session_state.licence_active:
-    st.title("🔒 Activation de VenteUp Pro")
-    st.error("Votre période d'essai de 7 jours est terminée.")
-    
-    st.subheader("💳 Comment activer l'application ?")
-    st.write(f"### Montant : **{PRIX}**")
-    st.warning(f"👉 Effectuez le dépôt sur le compte PayCard : **{COMPTE_PAYCARD}**")
-    
-    st.write("---")
-    ref = st.text_input("Une fois payé, entrez ici la Référence du paiement :")
-    if st.button("Vérifier et Débloquer"):
-        if len(ref) > 5: # Validation de la référence
+    st.title("🔒 Activation VenteUp")
+    st.error(f"Essai terminé. Payez 30 000 GNF au compte PayCard : 379 705 545")
+    ref = st.text_input("Référence du paiement :")
+    if st.button("Activer"):
+        if len(ref) > 5:
             st.session_state.licence_active = True
-            st.success("✅ Félicitations ! Votre boutique est activée à vie.")
-            st.balloons()
             st.rerun()
-        else:
-            st.error("Référence invalide ou trop courte.")
-
-# 2. SI UN MOT DE PASSE EST ACTIVÉ
-elif st.session_state.mdp_secret != "" and not st.session_state.authentifie:
-    st.title("🔐 Connexion Boutique")
-    saisie = st.text_input("Entrez votre mot de passe", type="password")
-    if st.button("Se connecter"):
-        if saisie == st.session_state.mdp_secret:
-            st.session_state.authentifie = True
-            st.rerun()
-        else:
-            st.error("Mot de passe incorrect")
-
-# 3. L'INTERFACE DE GESTION NORMALE
 else:
     with st.sidebar:
-        st.title("🏪 VenteUp Pro")
-        if not st.session_state.licence_active:
-            st.info(f"⏳ Essai : {max(0, jours_restants)} jours restants")
-        else:
-            st.success("💎 Version Illimitée")
-        
-        choix = st.radio("MENU", ["🛒 Vente", "📦 Stock", "📈 Bénéfices", "⚙️ Paramètres"])
-        
-        if st.session_state.authentifie:
-            if st.button("🔒 Déconnexion"):
-                st.session_state.authentifie = False
-                st.rerun()
-        st.markdown("---")
-        st.write("Support : 610 51 89 73")
+        st.title(f"🏪 {st.session_state.boutique_info['nom']}")
+        choix = st.radio("MENU", ["🛒 Vente & Facture", "📦 Stock", "📈 Bénéfices & Dettes", "⚙️ Paramètres"])
+        st.write("---")
+        st.caption(f"Support : 610 51 89 73")
 
-    # --- LOGIQUE DES ONGLETS ---
-    if 'stock' not in st.session_state:
-        st.session_state.stock = pd.DataFrame(columns=["Produit", "Prix Achat", "Prix Vente", "Quantité"])
-    if 'ventes' not in st.session_state:
-        st.session_state.ventes = pd.DataFrame(columns=["Date", "Produit", "Qte", "Prix Vendu", "Bénéfice"])
-
-    if choix == "🛒 Vente":
+    # --- 1. VENTE & FACTURE ---
+    if choix == "🛒 Vente & Facture":
         st.header("🛒 Nouvelle Vente")
         if st.session_state.stock.empty:
-            st.warning("Ajoutez d'abord des articles dans l'onglet Stock.")
+            st.warning("Le stock est vide.")
         else:
-            prod = st.selectbox("Sélectionner l'article", st.session_state.stock["Produit"])
-            info = st.session_state.stock[st.session_state.stock["Produit"] == prod].iloc[0]
-            c1, c2 = st.columns(2)
-            p_final = c1.number_input("Prix final (GNF)", value=float(info["Prix Vente"]))
-            qte = c2.number_input("Quantité", min_value=1, value=1)
-            if st.button("✅ Valider la vente"):
-                benef = (p_final - float(info["Prix Achat"])) * qte
-                n_v = {"Date": datetime.now().strftime("%H:%M"), "Produit": prod, "Qte": qte, "Prix Vendu": p_final*qte, "Bénéfice": benef}
-                st.session_state.ventes = pd.concat([st.session_state.ventes, pd.DataFrame([n_v])], ignore_index=True)
-                st.success("Vente enregistrée !")
+            with st.form("form_vente"):
+                prod = st.selectbox("Article", st.session_state.stock["Produit"])
+                info = st.session_state.stock[st.session_state.stock["Produit"] == prod].iloc[0]
+                c1, c2, c3 = st.columns(3)
+                p_v = c1.number_input("Prix (GNF)", value=float(info["Prix Vente"]))
+                q_v = c2.number_input("Quantité", min_value=1, value=1)
+                statut = c3.selectbox("Paiement", ["Payé", "Dette"])
+                valider = st.form_submit_button("Enregistrer la vente")
 
+                if valider:
+                    if q_v <= info["Quantité"]:
+                        benef = (p_v - float(info["Prix Achat"])) * q_v
+                        n_v = {"Date": datetime.now().strftime("%d/%m %H:%M"), "Produit": prod, "Qte": q_v, "Prix Vendu": p_v*q_v, "Bénéfice": benef, "Statut": statut}
+                        st.session_state.ventes = pd.concat([st.session_state.ventes, pd.DataFrame([n_v])], ignore_index=True)
+                        # Soustraire du stock
+                        st.session_state.stock.loc[st.session_state.stock["Produit"] == prod, "Quantité"] -= q_v
+                        st.success("Vente réussie !")
+                    else:
+                        st.error("Stock insuffisant !")
+
+        if not st.session_state.ventes.empty:
+            st.subheader("Dernière facture")
+            derniere = st.session_state.ventes.iloc[-1]
+            facture_text = f"""
+            *** {st.session_state.boutique_info['nom']} ***
+            {st.session_state.boutique_info['adresse']}
+            Tel: {st.session_state.boutique_info['tel']}
+            ---------------------------
+            Date: {derniere['Date']}
+            Article: {derniere['Produit']}
+            Qté: {derniere['Qte']}
+            TOTAL: {derniere['Prix Vendu']} GNF
+            Statut: {derniere['Statut']}
+            ---------------------------
+            Merci de votre confiance !
+            """
+            st.code(facture_text)
+            st.info("💡 Copiez ce texte pour l'envoyer sur WhatsApp.")
+
+    # --- 2. STOCK ---
     elif choix == "📦 Stock":
         st.header("📦 Gestion du Stock")
-        with st.expander("➕ Ajouter un nouveau produit", expanded=True):
-            n = st.text_input("Nom de l'article")
-            pa = st.number_input("Prix d'Achat", min_value=0.0)
-            pv = st.number_input("Prix de Vente conseillé", min_value=0.0)
+        with st.expander("➕ Ajouter un article"):
+            n = st.text_input("Nom")
+            pa = st.number_input("Prix Achat", min_value=0.0)
+            pv = st.number_input("Prix Vente", min_value=0.0)
             q = st.number_input("Quantité", min_value=1)
             if st.button("Enregistrer"):
-                if n:
-                    new_p = {"Produit": n, "Prix Achat": pa, "Prix Vente": pv, "Quantité": q}
-                    st.session_state.stock = pd.concat([st.session_state.stock, pd.DataFrame([new_p])], ignore_index=True)
-                    st.rerun()
-        st.subheader("📋 Liste des articles")
-        st.dataframe(st.session_state.stock, use_container_width=True)
+                new_p = {"Produit": n, "Prix Achat": pa, "Prix Vente": pv, "Quantité": q}
+                st.session_state.stock = pd.concat([st.session_state.stock, pd.DataFrame([new_p])], ignore_index=True)
+                st.rerun()
 
-    elif choix == "📈 Bénéfices":
-        st.header("📈 Résultats Financiers")
-        if not st.session_state.ventes.empty:
-            st.metric("Chiffre d'Affaire", f"{st.session_state.ventes['Prix Vendu'].sum():,.0f} GNF")
-            st.metric("Bénéfice Net", f"{st.session_state.ventes['Bénéfice'].sum():,.0f} GNF")
-            st.write("### Historique des transactions")
-            st.dataframe(st.session_state.ventes)
-        else:
-            st.info("Aucune vente enregistrée aujourd'hui.")
+        st.subheader("📋 Liste des produits")
+        for i, row in st.session_state.stock.iterrows():
+            col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+            color = "🔴" if row['Quantité'] < 5 else "🟢"
+            col1.write(f"{color} **{row['Produit']}**")
+            col2.write(f"{row['Prix Vente']} GNF")
+            col3.write(f"Stock: {row['Quantité']}")
+            if col4.button("🗑️", key=f"del_st_{i}"):
+                st.session_state.stock = st.session_state.stock.drop(i).reset_index(drop=True)
+                st.rerun()
 
+    # --- 3. BÉNÉFICES & DETTES ---
+    elif choix == "📈 Bénéfices & Dettes":
+        st.header("📈 Rapport d'activité")
+        dettes = st.session_state.ventes[st.session_state.ventes["Statut"] == "Dette"]
+        st.metric("Total Dettes", f"{dettes['Prix Vendu'].sum():,.0f} GNF")
+        st.metric("Bénéfice Réel", f"{st.session_state.ventes['Bénéfice'].sum():,.0f} GNF")
+        
+        st.subheader("Historique des Ventes")
+        for i, row in st.session_state.ventes.iterrows():
+            c1, c2, c3, c4 = st.columns([4, 2, 2, 1])
+            c1.write(f"{row['Date']} - {row['Produit']} (x{row['Qte']})")
+            c2.write(f"{row['Prix Vendu']} GNF")
+            c3.write(f"**{row['Statut']}**")
+            if c4.button("🗑️", key=f"del_v_{i}"):
+                st.session_state.ventes = st.session_state.ventes.drop(i).reset_index(drop=True)
+                st.rerun()
+
+    # --- 4. PARAMÈTRES (CONFIG BOUTIQUE) ---
     elif choix == "⚙️ Paramètres":
-        st.header("⚙️ Sécurité")
-        mdp = st.text_input("Choisir un mot de passe (laisser vide si vous n'en voulez pas)", type="password", value=st.session_state.mdp_secret)
-        if st.button("Enregistrer les réglages"):
-            st.session_state.mdp_secret = mdp
-            st.success("Paramètres mis à jour !")
+        st.header("⚙️ Configuration Boutique")
+        with st.form("info_boutique"):
+            nom = st.text_input("Nom de la boutique", value=st.session_state.boutique_info['nom'])
+            adr = st.text_input("Adresse / Quartier", value=st.session_state.boutique_info['adresse'])
+            tel = st.text_input("Téléphone", value=st.session_state.boutique_info['tel'])
+            if st.form_submit_button("Enregistrer les infos"):
+                st.session_state.boutique_info = {"nom": nom, "adresse": adr, "tel": tel}
+                st.success("Infos mises à jour !")
+        
+        st.write("---")
+        if st.button("🔴 Réinitialiser l'application"):
+            st.session_state.clear()
+            st.rerun()
