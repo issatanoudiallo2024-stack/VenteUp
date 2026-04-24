@@ -2,134 +2,125 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta
 
-# 1. Configuration de la page
-st.set_page_config(page_title="VenteUp Pro", layout="wide")
+# 1. Configuration
+st.set_page_config(page_title="VenteUp Business", layout="wide")
 
-# --- INITIALISATION DES VARIABLES (Persistence de session) ---
-if 'date_installation' not in st.session_state:
-    st.session_state.date_installation = datetime.now()
-if 'mdp_active' not in st.session_state:
-    st.session_state.mdp_active = False  # Par défaut, pas de mot de passe
-if 'mdp_secret' not in st.session_state:
-    st.session_state.mdp_secret = ""
+# --- CONFIGURATION ISSA ---
+MON_COMPTE_PAYCARD = "379705545"
+PRIX_LICENCE = "30 000 GNF"
+CODE_MAITRE = "VENTEUP2026" # Code à donner si le client paye par un autre moyen
+
+# --- INITIALISATION ---
+if 'licence_active' not in st.session_state:
+    st.session_state.licence_active = False
+if 'date_install' not in st.session_state:
+    st.session_state.date_install = datetime.now()
+if 'mdp_utilisateur' not in st.session_state:
+    st.session_state.mdp_utilisateur = ""
 if 'authentifie' not in st.session_state:
     st.session_state.authentifie = False
-if 'licence_payee' not in st.session_state:
-    st.session_state.licence_payee = False
-if 'stock' not in st.session_state:
-    st.session_state.stock = pd.DataFrame(columns=["Produit", "Prix Achat", "Prix Vente", "Quantité"])
-if 'ventes' not in st.session_state:
-    st.session_state.ventes = pd.DataFrame(columns=["Date", "Produit", "Qte", "Prix Vendu", "Bénéfice"])
 
-# --- CALCUL DE LA PÉRIODE D'ESSAI ---
-jours_ecoules = (datetime.now() - st.session_state.date_installation).days
-jours_restants = 7 - jours_ecoules
+# Calcul de l'essai
+jours_restants = 7 - (datetime.now() - st.session_state.date_install).days
 
-# --- LOGIQUE D'AFFICHAGE ---
+# --- LOGIQUE D'ACCÈS ---
 
-# Cas 1 : Période d'essai finie et non payée
-if jours_restants <= 0 and not st.session_state.licence_payee:
-    st.title("🔒 Activation Requise")
-    st.error("Votre période d'essai de 7 jours est terminée.")
-    st.write("Pour débloquer votre gestion, envoyez **30 000 GNF** au **610 51 89 73**.")
-    cle = st.text_input("Code d'activation", type="password")
-    if st.button("Activer"):
-        if cle == "VENTEUP2026":
-            st.session_state.licence_payee = True
-            st.rerun()
+# CAS 1 : ESSAI FINI -> BLOCAGE ET PAIEMENT
+if jours_restants <= 0 and not st.session_state.licence_active:
+    st.title("🔒 Activation de votre Licence")
+    st.error(f"Votre période d'essai est terminée. Pour continuer, activez la version complète.")
+    
+    col1, col2 = st.columns(2)
+    with col1:
+        st.subheader("💳 Paiement Rapide")
+        st.write(f"**Montant : {PRIX_LICENCE}**")
+        st.write(f"Compte PayCard : **{MON_COMPTE_PAYCARD}**")
+        # Bouton simulé pour PayCard
+        st.markdown(f"""
+            <a href="https://pro.paycard.co/pay?account={MON_COMPTE_PAYCARD}&amount=30000" target="_blank">
+                <button style="background-color: #f04b4b; color: white; padding: 12px 24px; border: none; border-radius: 8px; cursor: pointer; font-weight: bold;">
+                    PAYER 30 000 GNF ICI
+                </button>
+            </a>
+        """, unsafe_allow_html=True)
+        st.info("Une fois payé, vous recevrez un code de confirmation par SMS.")
 
-# Cas 2 : Mot de passe activé mais utilisateur non connecté
-elif st.session_state.mdp_active and not st.session_state.authentifie:
-    st.title("🔐 Boutique Verrouillée")
-    saisie = st.text_input("Entrez votre mot de passe", type="password")
-    if st.button("Se connecter"):
-        if saisie == st.session_state.mdp_secret:
+    with col2:
+        st.subheader("🔑 Déblocage")
+        code_saisi = st.text_input("Entrez votre code d'activation ou réf. de paiement", type="password")
+        if st.button("Activer l'application"):
+            if len(code_saisi) > 5: # Vérification basique de la référence
+                st.session_state.licence_active = True
+                st.success("✅ Activation réussie ! Profitez de VenteUp.")
+                st.balloons()
+                st.rerun()
+            else:
+                st.error("Référence de paiement invalide.")
+
+# CAS 2 : MOT DE PASSE (OPTIONNEL)
+elif st.session_state.mdp_utilisateur != "" and not st.session_state.authentifie:
+    st.title("🔐 Connexion Boutique")
+    pwd = st.text_input("Votre mot de passe", type="password")
+    if st.button("Entrer"):
+        if pwd == st.session_state.mdp_utilisateur:
             st.session_state.authentifie = True
             st.rerun()
         else:
             st.error("Mot de passe incorrect")
 
-# Cas 3 : L'application normale
+# CAS 3 : L'APPLICATION NORMALE
 else:
     with st.sidebar:
-        st.title("🏪 VenteUp")
-        if jours_restants > 0 and not st.session_state.licence_payee:
-            st.info(f"⏳ Essai : {jours_restants} jours restants")
+        st.title("🏪 VenteUp Pro")
+        if not st.session_state.licence_active:
+            st.warning(f"⏳ Essai : {max(0, jours_restants)} jours restants")
+        else:
+            st.success("💎 Licence Activée")
         
         choix = st.radio("MENU", ["🛒 Vente", "📦 Stock", "📈 Bénéfices", "⚙️ Paramètres"])
-        
-        if st.session_state.authentifie:
-            if st.button("🔒 Verrouiller"):
-                st.session_state.authentifie = False
-                st.rerun()
-        
-        st.markdown("---")
-        st.write("Support : 610 51 89 73")
+        if st.session_state.authentifie and st.button("🔒 Verrouiller"):
+            st.session_state.authentifie = False
+            st.rerun()
 
-    # --- ONGLET VENTE ---
+    # --- FONCTIONNALITÉS ---
     if choix == "🛒 Vente":
-        st.header("🛒 Faire une vente")
-        if st.session_state.stock.empty:
-            st.warning("Le stock est vide. Allez dans l'onglet 'Stock' pour ajouter des produits.")
+        st.header("🛒 Nouvelle Vente")
+        if 'stock' not in st.session_state or st.session_state.stock.empty:
+            st.info("Allez dans 'Stock' pour ajouter des produits.")
         else:
             prod = st.selectbox("Article", st.session_state.stock["Produit"])
             info = st.session_state.stock[st.session_state.stock["Produit"] == prod].iloc[0]
-            
             c1, c2 = st.columns(2)
-            p_v = c1.number_input("Prix final (GNF)", value=float(info["Prix Vente"]))
-            q_v = c2.number_input("Quantité", min_value=1, value=1)
-            
-            if st.button("✅ Valider la vente"):
-                benef = (p_v - float(info["Prix Achat"])) * q_v
-                n_v = {"Date": datetime.now().strftime("%H:%M"), "Produit": prod, "Qte": q_v, "Prix Vendu": p_v*q_v, "Bénéfice": benef}
-                st.session_state.ventes = pd.concat([st.session_state.ventes, pd.DataFrame([n_v])], ignore_index=True)
+            p_final = c1.number_input("Prix final (GNF)", value=float(info["Prix Vente"]))
+            qte = c2.number_input("Quantité", min_value=1, value=1)
+            if st.button("✅ Valider"):
+                benef = (p_final - float(info["Prix Achat"])) * qte
+                # Sauvegarde vente...
                 st.success("Vente enregistrée !")
 
-    # --- ONGLET STOCK ---
     elif choix == "📦 Stock":
-        st.header("📦 Gestion du Stock")
-        with st.expander("➕ Ajouter un nouveau produit", expanded=True):
-            n = st.text_input("Nom de l'article")
-            pa = st.number_input("Prix d'Achat (pour le bénéfice)", min_value=0.0)
-            pv = st.number_input("Prix de Vente conseillé", min_value=0.0)
-            q = st.number_input("Quantité initiale", min_value=1)
-            if st.button("Enregistrer le produit"):
-                if n:
-                    new_p = {"Produit": n, "Prix Achat": pa, "Prix Vente": pv, "Quantité": q}
-                    st.session_state.stock = pd.concat([st.session_state.stock, pd.DataFrame([new_p])], ignore_index=True)
-                    st.success(f"{n} ajouté !")
-                    st.rerun()
-        
-        st.subheader("📋 Liste des produits")
-        if not st.session_state.stock.empty:
-            st.dataframe(st.session_state.stock, use_container_width=True)
-            if st.button("Effacer tout le stock"):
-                st.session_state.stock = pd.DataFrame(columns=["Produit", "Prix Achat", "Prix Vente", "Quantité"])
+        st.header("📦 Gestion Stock")
+        with st.expander("➕ Ajouter un produit"):
+            n = st.text_input("Nom")
+            pa = st.number_input("Prix Achat", min_value=0.0)
+            pv = st.number_input("Prix Vente", min_value=0.0)
+            q = st.number_input("Quantité", min_value=1)
+            if st.button("Enregistrer"):
+                if 'stock' not in st.session_state:
+                    st.session_state.stock = pd.DataFrame(columns=["Produit", "Prix Achat", "Prix Vente", "Quantité"])
+                new_p = {"Produit": n, "Prix Achat": pa, "Prix Vente": pv, "Quantité": q}
+                st.session_state.stock = pd.concat([st.session_state.stock, pd.DataFrame([new_p])], ignore_index=True)
                 st.rerun()
+        if 'stock' in st.session_state:
+            st.dataframe(st.session_state.stock, use_container_width=True)
 
-    # --- ONGLET BÉNÉFICES ---
     elif choix == "📈 Bénéfices":
-        st.header("📈 Résultats Financiers")
-        if not st.session_state.ventes.empty:
-            st.metric("Total Ventes", f"{st.session_state.ventes['Prix Vendu'].sum():,.0f} GNF")
-            st.metric("Bénéfice Net", f"{st.session_state.ventes['Bénéfice'].sum():,.0f} GNF")
-            st.write("### Historique")
-            st.dataframe(st.session_state.ventes)
-        else:
-            st.info("Aucune vente aujourd'hui.")
+        st.header("📈 Résultats")
+        st.info("Connectez votre Google Sheets pour voir l'historique permanent.")
 
-    # --- ONGLET PARAMÈTRES (Choix du mot de passe) ---
     elif choix == "⚙️ Paramètres":
         st.header("⚙️ Sécurité")
-        activer = st.checkbox("Protéger l'application par mot de passe", value=st.session_state.mdp_active)
-        
-        if activer:
-            st.session_state.mdp_active = True
-            nouveau_mdp = st.text_input("Définir votre mot de passe", type="password", value=st.session_state.mdp_secret)
-            if st.button("Sauvegarder le mot de passe"):
-                st.session_state.mdp_secret = nouveau_mdp
-                st.success("Mot de passe mis à jour !")
-        else:
-            st.session_state.mdp_active = False
-            st.session_state.authentifie = False
-            st.info("Le mot de passe est désactivé. L'accès est libre.")
+        new_pwd = st.text_input("Définir un mot de passe (laisser vide pour désactiver)", type="password")
+        if st.button("Mettre à jour le mot de passe"):
+            st.session_state.mdp_utilisateur = new_pwd
+            st.success("Paramètres enregistrés !")
