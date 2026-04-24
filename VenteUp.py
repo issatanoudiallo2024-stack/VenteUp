@@ -3,7 +3,7 @@ import pandas as pd
 import os
 from datetime import datetime
 
-# 1. Configuration
+# 1. Configuration de la page
 st.set_page_config(page_title="VenteUp Pro", layout="wide")
 
 def charger_csv(nom, col):
@@ -15,7 +15,7 @@ def charger_csv(nom, col):
 def sauver_csv(df, nom):
     df.to_csv(nom, index=False)
 
-# --- INITIALISATION VIDE (POUR L'UTILISATEUR) ---
+# --- INITIALISATION (VIDE POUR L'UTILISATEUR) ---
 if 'stock' not in st.session_state:
     st.session_state.stock = charger_csv("stock_data.csv", ["Produit", "Prix Achat", "Prix Vente", "Quantité"])
 if 'ventes' not in st.session_state:
@@ -23,133 +23,132 @@ if 'ventes' not in st.session_state:
 if 'panier' not in st.session_state:
     st.session_state.panier = []
 
-# Informations génériques par défaut
+# Dictionnaire vide pour forcer l'utilisateur à remplir ses infos
 if 'boutique_info' not in st.session_state:
-    st.session_state.boutique_info = {
-        "nom": "NOM DE VOTRE BOUTIQUE", 
-        "adresse": "VOTRE ADRESSE", 
-        "tel": "VOTRE CONTACT"
-    }
+    st.session_state.boutique_info = {"nom": "", "adresse": "", "tel": ""}
 
-# --- BARRE LATÉRALE ---
+# --- BARRE LATÉRALE (TES INFOS DE DÉVELOPPEUR) ---
 with st.sidebar:
-    st.title(f"🏪 {st.session_state.boutique_info['nom']}")
+    st.title("🚀 VenteUp Pro")
     choix = st.radio("MENU", ["🛒 Caisse", "📦 Stock", "📈 Historique", "⚙️ Paramètres"])
-    st.write("---")
-    st.write("**Concepteur :** Issa Diallo")
+    st.markdown("---")
+    # TES INFOS SONT ICI
+    st.write("**Développeur :** Issa Diallo") 
     st.write("📞 **Contact :** 610 51 89 73")
+    st.caption("Étudiant à l'UGANC")
 
-# --- 1. CAISSE ---
+# --- 1. CAISSE & FACTURATION ---
 if choix == "🛒 Caisse":
-    st.header("🛒 Caisse & Vente")
-    col1, col2 = st.columns(2)
+    st.header("🛒 Interface de Vente")
     
+    if not st.session_state.boutique_info['nom']:
+        st.warning("⚠️ Allez dans 'Paramètres' pour configurer le nom de votre boutique.")
+
+    col1, col2 = st.columns(2)
     with col1:
         if st.session_state.stock.empty:
-            st.warning("Stock vide. Allez dans 'Stock' pour ajouter des produits.")
+            st.info("Le stock est vide.")
         else:
             p_sel = st.selectbox("Article", st.session_state.stock["Produit"])
             info = st.session_state.stock[st.session_state.stock["Produit"] == p_sel].iloc[0]
             q = st.number_input("Quantité", min_value=1, value=1)
-            if st.button("🛒 Ajouter au panier"):
+            if st.button("🛒 Ajouter"):
                 if q <= info["Quantité"]:
                     st.session_state.panier.append({
                         "Produit": p_sel, "Qte": q, "Prix": info["Prix Vente"], 
                         "Total": info["Prix Vente"]*q, "Ben": (info["Prix Vente"]-info["Prix Achat"])*q
                     })
-                    st.success("Ajouté !")
+                    st.success("Ajouté")
                 else:
-                    st.error(f"Stock insuffisant ({info['Quantité']} restants)")
+                    st.error("Stock insuffisant")
 
     with col2:
         if st.session_state.panier:
             st.subheader("Panier")
             st.table(pd.DataFrame(st.session_state.panier)[["Produit", "Qte", "Total"]])
-            if st.button("🗑️ Vider le panier"):
+            if st.button("🗑️ Vider"):
                 st.session_state.panier = []; st.rerun()
 
     if st.session_state.panier:
         st.write("---")
-        st.subheader("Finaliser la vente")
-        c1, c2, c3 = st.columns(3)
-        c_n = c1.text_input("Nom Client", "Passager")
-        c_t = c2.text_input("Tél Client", "-")
-        c_a = c3.text_input("Adresse Client", "-")
+        st.subheader("Client")
+        c1, c2 = st.columns(2)
+        c_n = c1.text_input("Nom du Client", "")
+        c_t = c2.text_input("Téléphone", "")
         
         if st.button("✅ Valider & Imprimer"):
-            total_v = sum(i['Total'] for i in st.session_state.panier)
-            date_v = datetime.now().strftime("%d/%m/%Y %H:%M")
-            
-            # Sauvegardes
-            new_v = {"Date": date_v, "Client": c_n, "Total": total_v, "Bénéfice": sum(i['Ben'] for i in st.session_state.panier)}
-            st.session_state.ventes = pd.concat([st.session_state.ventes, pd.DataFrame([new_v])], ignore_index=True)
-            sauver_csv(st.session_state.ventes, "ventes_data.csv")
-            
-            for i in st.session_state.panier:
-                st.session_state.stock.loc[st.session_state.stock["Produit"] == i["Produit"], "Quantité"] -= i["Qte"]
-            sauver_csv(st.session_state.stock, "stock_data.csv")
+            if not c_n:
+                st.error("Entrez le nom du client")
+            else:
+                total_v = sum(i['Total'] for i in st.session_state.panier)
+                date_v = datetime.now().strftime("%d/%m/%Y %H:%M")
+                
+                # Sauvegarde
+                new_v = {"Date": date_v, "Client": c_n, "Total": total_v, "Bénéfice": sum(i['Ben'] for i in st.session_state.panier)}
+                st.session_state.ventes = pd.concat([st.session_state.ventes, pd.DataFrame([new_v])], ignore_index=True)
+                sauver_csv(st.session_state.ventes, "ventes_data.csv")
+                
+                for i in st.session_state.panier:
+                    st.session_state.stock.loc[st.session_state.stock["Produit"] == i["Produit"], "Quantité"] -= i["Qte"]
+                sauver_csv(st.session_state.stock, "stock_data.csv")
 
-            # --- GÉNÉRATION HTML POUR IMPRESSION / PDF ---
-            html = f"""
-            <div id="printArea" style="font-family:sans-serif; border:1px solid #ddd; padding:20px; background:white; color:black;">
-                <div style="display:flex; justify-content:space-between; border-bottom:2px solid #1a73e8; padding-bottom:10px;">
-                    <div style="text-align:left;">
-                        <h2 style="color:#1a73e8; margin:0;">{st.session_state.boutique_info['nom']}</h2>
-                        <p style="margin:0;">{st.session_state.boutique_info['adresse']}</p>
-                        <p style="margin:0;">{st.session_state.boutique_info['tel']}</p>
+                # FACTURE NEUTRE (DÉPEND DES PARAMÈTRES UTILISATEUR)
+                html = f"""
+                <div style="font-family:sans-serif; border:1px solid #000; padding:20px; background:#fff; color:#000;">
+                    <div style="display:flex; justify-content:space-between; border-bottom:1px solid #000; padding-bottom:10px;">
+                        <div>
+                            <h2 style="margin:0;">{st.session_state.boutique_info['nom'].upper()}</h2>
+                            <p style="margin:0;">{st.session_state.boutique_info['adresse']}</p>
+                            <p style="margin:0;">{st.session_state.boutique_info['tel']}</p>
+                        </div>
+                        <div style="text-align:right;">
+                            <h2 style="margin:0;">FACTURE</h2>
+                            <p style="margin:0;"><b>Client:</b> {c_n}</p>
+                            <p style="margin:0;"><b>Date:</b> {date_v}</p>
+                        </div>
                     </div>
-                    <div style="text-align:right;">
-                        <h2 style="margin:0; color:#444;">FACTURE</h2>
-                        <p style="margin:0;"><b>Client:</b> {c_n}</p>
-                        <p style="margin:0;"><b>Date:</b> {date_v}</p>
-                    </div>
+                    <table style="width:100%; border-collapse:collapse; margin-top:20px;">
+                        <tr style="border-bottom:1px solid #000;">
+                            <th style="text-align:left; padding:5px;">Désignation</th>
+                            <th style="padding:5px;">Qté</th>
+                            <th style="text-align:right; padding:5px;">Total</th>
+                        </tr>
+                """
+                for i in st.session_state.panier:
+                    html += f"<tr><td style='padding:5px;'>{i['Produit']}</td><td style='padding:5px; text-align:center;'>{i['Qte']}</td><td style='padding:5px; text-align:right;'>{i['Total']:,.0f} GNF</td></tr>"
+                
+                html += f"""
+                    </table>
+                    <h3 style="text-align:right; margin-top:20px;">TOTAL NET : {total_v:,.0f} GNF</h3>
                 </div>
-                <table style="width:100%; border-collapse:collapse; margin-top:20px;">
-                    <tr style="background:#1a73e8; color:white;">
-                        <th style="padding:10px; border:1px solid #ddd; text-align:left;">Désignation</th>
-                        <th style="padding:10px; border:1px solid #ddd;">Qté</th>
-                        <th style="padding:10px; border:1px solid #ddd; text-align:right;">Total</th>
-                    </tr>
-            """
-            for i in st.session_state.panier:
-                html += f"<tr><td style='padding:8px; border:1px solid #ddd;'>{i['Produit']}</td><td style='padding:8px; border:1px solid #ddd; text-align:center;'>{i['Qte']}</td><td style='padding:8px; border:1px solid #ddd; text-align:right;'>{i['Total']:,.0f} GNF</td></tr>"
-            
-            html += f"""
-                </table>
-                <h2 style="text-align:right; color:red; margin-top:20px;">TOTAL : {total_v:,.0f} GNF</h2>
-            </div>
-            <br>
-            <button onclick="window.print()" style="width:100%; padding:15px; background:#28a745; color:white; border:none; border-radius:5px; cursor:pointer; font-weight:bold;">
-                🖨️ CLIQUEZ ICI POUR IMPRIMER OU ENREGISTRER EN PDF
-            </button>
-            """
-            st.markdown(html, unsafe_allow_html=True)
-            st.session_state.panier = [] # Vide après validation
+                <br>
+                <button onclick="window.print()" style="width:100%; padding:15px; background:#000; color:#fff; font-weight:bold; cursor:pointer;">
+                    🖨️ IMPRIMER / ENREGISTRER PDF
+                </button>
+                """
+                st.markdown(html, unsafe_allow_html=True)
+                st.session_state.panier = []
 
 # --- 2. STOCK ---
 elif choix == "📦 Stock":
-    st.header("📦 Gestion du Stock")
-    with st.expander("Ajouter un article"):
-        n = st.text_input("Désignation"); pa = st.number_input("Prix Achat"); pv = st.number_input("Prix Vente"); q = st.number_input("Qté initiale", min_value=1)
-        if st.button("Enregistrer"):
-            if n:
-                st.session_state.stock = pd.concat([st.session_state.stock, pd.DataFrame([{"Produit":n,"Prix Achat":pa,"Prix Vente":pv,"Quantité":q}])], ignore_index=True)
-                sauver_csv(st.session_state.stock, "stock_data.csv"); st.rerun()
+    st.header("📦 Gestion Stock")
+    with st.expander("Ajouter un produit"):
+        n = st.text_input("Nom"); pa = st.number_input("Prix Achat", value=0); pv = st.number_input("Prix Vente", value=0); q = st.number_input("Qté", value=0)
+        if st.button("Ajouter"):
+            st.session_state.stock = pd.concat([st.session_state.stock, pd.DataFrame([{"Produit":n,"Prix Achat":pa,"Prix Vente":pv,"Quantité":q}])], ignore_index=True)
+            sauver_csv(st.session_state.stock, "stock_data.csv"); st.rerun()
     st.dataframe(st.session_state.stock, use_container_width=True)
 
-# --- 3. HISTORIQUE ---
-elif choix == "📈 Historique":
-    st.header("📈 Rapport des Ventes")
-    if not st.session_state.ventes.empty:
-        st.metric("Total des Ventes", f"{st.session_state.ventes['Total'].sum():,.0f} GNF")
-        st.dataframe(st.session_state.ventes, use_container_width=True)
-
-# --- 4. PARAMÈTRES ---
+# --- 3. PARAMÈTRES ---
 elif choix == "⚙️ Paramètres":
-    st.header("⚙️ Réglages de la Boutique")
-    st.info("Modifiez ces informations pour qu'elles apparaissent sur vos factures.")
-    st.session_state.boutique_info['nom'] = st.text_input("Nom de l'Enseigne", st.session_state.boutique_info['nom'])
-    st.session_state.boutique_info['adresse'] = st.text_input("Adresse / Quartier", st.session_state.boutique_info['adresse'])
-    st.session_state.boutique_info['tel'] = st.text_input("Téléphone", st.session_state.boutique_info['tel'])
-    if st.button("Sauvegarder les paramètres"):
-        st.success("C'est enregistré !")
+    st.header("⚙️ Configuration Boutique")
+    st.session_state.boutique_info['nom'] = st.text_input("Nom de l'Enseigne (ex: Ma Boutique)", st.session_state.boutique_info['nom'])
+    st.session_state.boutique_info['adresse'] = st.text_input("Adresse", st.session_state.boutique_info['adresse'])
+    st.session_state.boutique_info['tel'] = st.text_input("Contact", st.session_state.boutique_info['tel'])
+    if st.button("Enregistrer"):
+        st.success("Paramètres mis à jour !")
+
+# --- 4. HISTORIQUE ---
+elif choix == "📈 Historique":
+    st.header("📈 Historique des Ventes")
+    st.dataframe(st.session_state.ventes, use_container_width=True)
