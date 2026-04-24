@@ -2,74 +2,68 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime
 
-# 1. Configuration de la page
-st.set_page_config(page_title="VenteUp - Gestion Boutique", layout="wide", initial_sidebar_state="expanded")
+# 1. Configuration
+st.set_page_config(page_title="VenteUp Pro", layout="wide")
 
-# --- INITIALISATION DES DONNÉES ---
+# --- INITIALISATION DES PARAMÈTRES ET DONNÉES ---
+if 'code_active' not in st.session_state:
+    st.session_state.code_active = False # Désactivé par défaut
+if 'authentifie' not in st.session_state:
+    st.session_state.authentifie = False
 if 'stock' not in st.session_state:
-    st.session_state.stock = pd.DataFrame(columns=["Produit", "Prix Unitaire", "Quantité"])
-
+    st.session_state.stock = pd.DataFrame(columns=["Produit", "Prix Achat", "Prix Vente", "Quantité"])
 if 'ventes' not in st.session_state:
-    st.session_state.ventes = pd.DataFrame(columns=["Date", "Produit", "Quantité", "Total"])
+    st.session_state.ventes = pd.DataFrame(columns=["Date", "Produit", "Qte", "Prix Vendu", "Bénéfice"])
 
-# --- BARRE LATÉRALE ---
-with st.sidebar:
-    st.title("🏪 VenteUp")
-    st.markdown("---")
-    choix = st.radio(
-        "QUE VOULEZ-VOUS FAIRE ?",
-        ["🛒 Faire une Vente", "📦 Ajouter des Articles", "📊 Voir mes Revenus"]
-    )
-    st.markdown("---")
-    st.success(f"📞 **Support & Activation :**\n**610 51 89 73**")
+# --- GESTION DU VERROUILLAGE ---
+def ecran_verrouillage():
+    st.title("🔐 Accès Protégé")
+    code = st.text_input("Entrez le mot de passe", type="password")
+    if st.button("Déverrouiller"):
+        if code == "1234":
+            st.session_state.authentifie = True
+            st.rerun()
+        else:
+            st.error("Code incorrect")
 
-# --- 1. ONGLET : FAIRE UNE VENTE ---
-if choix == "🛒 Faire une Vente":
-    st.header("🛒 Réaliser une vente")
-    if st.session_state.stock.empty:
-        st.error("🚨 Votre stock est vide ! Allez dans 'Ajouter des Articles'.")
-    else:
-        col1, col2 = st.columns(2)
-        with col1:
-            produit_choisi = st.selectbox("Choisir l'article", st.session_state.stock["Produit"])
-        with col2:
-            qte_vendre = st.number_input("Quantité", min_value=1, value=1)
-        
-        if st.button("✅ Valider la vente"):
-            prix_u = st.session_state.stock.loc[st.session_state.stock["Produit"] == produit_choisi, "Prix Unitaire"].values[0]
-            total = prix_u * qte_vendre
-            nouvelle_vente = {"Date": datetime.now().strftime("%H:%M"), "Produit": produit_choisi, "Quantité": qte_vendre, "Total": total}
-            st.session_state.ventes = pd.concat([st.session_state.ventes, pd.DataFrame([nouvelle_vente])], ignore_index=True)
-            st.balloons()
-            st.success(f"Vendu ! Total : {total:,} GNF")
+# Logique d'affichage
+if st.session_state.code_active and not st.session_state.authentifie:
+    ecran_verrouillage()
+else:
+    # --- BARRE LATÉRALE ---
+    with st.sidebar:
+        st.title("🏪 VenteUp Pro")
+        choix = st.radio("MENU", ["🛒 Vente", "📦 Stock", "📈 Bénéfices", "⚙️ Paramètres"])
+        st.markdown("---")
+        if st.session_state.authentifie:
+            if st.button("🔒 Verrouiller"):
+                st.session_state.authentifie = False
+                st.rerun()
+        st.success("📞 Support : 610 51 89 73")
 
-# --- 2. ONGLET : AJOUTER DES ARTICLES ---
-elif choix == "📦 Ajouter des Articles":
-    st.header("📦 Gestion du Stock")
-    with st.expander("➕ Ajouter un nouvel article", expanded=True):
-        c1, c2, c3 = st.columns(3)
-        with c1:
-            nom_p = st.text_input("Nom de l'article")
-        with c2:
-            prix_p = st.number_input("Prix de vente (GNF)", min_value=0, step=500)
-        with c3:
-            qte_p = st.number_input("Quantité initiale", min_value=1, value=10)
-        
-        if st.button("📥 Enregistrer"):
-            if nom_p:
-                nouvel_art = {"Produit": nom_p, "Prix Unitaire": prix_p, "Quantité": qte_p}
-                st.session_state.stock = pd.concat([st.session_state.stock, pd.DataFrame([nouvel_art])], ignore_index=True)
-                st.success(f"{nom_p} ajouté !")
+    # --- 1. VENTE ---
+    if choix == "🛒 Vente":
+        st.header("🛒 Réaliser une vente")
+        if st.session_state.stock.empty:
+            st.warning("Le stock est vide.")
+        else:
+            c1, c2 = st.columns(2)
+            prod = c1.selectbox("Article", st.session_state.stock["Produit"])
+            info = st.session_state.stock[st.session_state.stock["Produit"] == prod].iloc[0]
+            prix_f = c2.number_input("Prix final (GNF)", value=float(info["Prix Vente"]))
+            qte = st.number_input("Quantité", min_value=1, value=1)
+            
+            if st.button("✅ Valider"):
+                benef = (prix_f - float(info["Prix Achat"])) * qte
+                nouvelle_v = {"Date": datetime.now().strftime("%H:%M"), "Produit": prod, "Qte": qte, "Prix Vendu": prix_f*qte, "Bénéfice": benef}
+                st.session_state.ventes = pd.concat([st.session_state.ventes, pd.DataFrame([nouvelle_v])], ignore_index=True)
+                st.success("Vente réussie !")
 
-    st.subheader("📋 Stock actuel")
-    st.table(st.session_state.stock)
-
-# --- 3. ONGLET : REVENUS ---
-elif choix == "📊 Voir mes Revenus":
-    st.header("📊 Bilan")
-    if st.session_state.ventes.empty:
-        st.info("Aucune vente.")
-    else:
-        total_argent = st.session_state.ventes["Total"].sum()
-        st.metric("TOTAL GAGNÉ", f"{total_argent:,} GNF")
-        st.dataframe(st.session_state.ventes)
+    # --- 2. STOCK ---
+    elif choix == "📦 Stock":
+        st.header("📦 Gestion du Stock")
+        with st.expander("➕ Ajouter un produit"):
+            c1, c2, c3, c4 = st.columns(4)
+            n = c1.text_input("Nom")
+            pa = c2.number_input("Prix Achat", min_value=0.0)
+            pv = c3.number_input("Prix Vente", min_value=
