@@ -1,12 +1,8 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime
-import hashlib
 from supabase import create_client
 
-# ==========================================
-# 🔑 CONFIGURATION SUPABASE (ISSA DIALLO)
-# ==========================================
+# CONFIGURATION
 SUPABASE_URL = "https://enikglfabczfpahbfzvq.supabase.co"
 SUPABASE_KEY = "sb_publishable_h169bGdSBk_SpbiXwH0KbQ_JE6Cm7lS"
 
@@ -16,126 +12,89 @@ def get_supabase():
 
 db = get_supabase()
 
-# --- SÉCURITÉ DES MOTS DE PASSE ---
-def hash_p(p):
-    return hashlib.sha256(str.encode(p)).hexdigest()
+st.set_page_config(page_title="VenteUp Pro", layout="wide")
 
-# --- CONFIGURATION DE LA PAGE ---
-st.set_page_config(page_title="VenteUp Pro", layout="wide", page_icon="📈")
-
-# Initialisation de la session utilisateur
 if 'user_id' not in st.session_state:
     st.session_state['user_id'] = None
 
-# --- ECRAN D'AUTHENTIFICATION ---
+# --- AUTHENTIFICATION (VERSION SIMPLE) ---
 if st.session_state['user_id'] is None:
     st.title("🚀 VenteUp Pro")
-    st.subheader("Logiciel de Gestion par Issa Diallo")
+    t1, t2 = st.tabs(["Connexion", "Créer un compte"])
     
-    tab_log, tab_sign = st.tabs(["Connexion", "Créer un compte"])
-    
-    with tab_log:
-        u = st.text_input("Pseudo", key="login_user")
-        p = st.text_input("Mot de passe", type="password", key="login_pass")
+    with t1:
+        u = st.text_input("Pseudo", key="l_u")
+        p = st.text_input("Mot de passe", type="password", key="l_p")
         if st.button("Se connecter", use_container_width=True):
-            res = db.table("users").select("*").eq("username", u).eq("password", hash_p(p)).execute()
+            # On compare le mot de passe en texte normal
+            res = db.table("users").select("*").eq("username", u).eq("password", p).execute()
             if res.data:
                 st.session_state['user_id'] = res.data[0]['id']
                 st.rerun()
             else:
-                st.error("Pseudo ou mot de passe incorrect.")
+                st.error("Identifiants incorrects.")
 
-    with tab_sign:
-        nu = st.text_input("Nouveau Pseudo", key="sign_user")
-        ne = st.text_input("Nom de votre Boutique", key="sign_ent")
-        np = st.text_input("Nouveau Mot de passe", type="password", key="sign_pass")
-        if st.button("Valider l'inscription", use_container_width=True):
+    with t2:
+        nu = st.text_input("Nouveau Pseudo", key="s_u")
+        ne = st.text_input("Nom Boutique", key="s_e")
+        np = st.text_input("Mot de passe", type="password", key="s_p")
+        if st.button("S'inscrire", use_container_width=True):
             try:
-                db.table("users").insert({"username": nu, "password": hash_p(np), "nom_ent": ne}).execute()
-                st.success("Compte créé avec succès ! Connectez-vous.")
+                # On enregistre le mot de passe en texte normal
+                db.table("users").insert({"username": nu, "password": np, "nom_ent": ne}).execute()
+                st.success("Compte créé ! Connecte-toi.")
             except:
-                st.error("Ce pseudo est déjà utilisé.")
+                st.error("Pseudo déjà pris.")
     st.stop()
 
-# --- INFOS UTILISATEUR CONNECTÉ ---
+# --- RESTE DU CODE (Dashboard, Stock, etc.) ---
 user_id = st.session_state['user_id']
 user_info = db.table("users").select("*").eq("id", user_id).execute().data[0]
 
-# --- MENU LATÉRAL ---
 with st.sidebar:
     st.header(f"🏪 {user_info['nom_ent']}")
-    menu = st.radio("Navigation", ["📊 Dashboard", "🛒 Caisse", "📦 Stock", "💸 Dépenses"])
-    st.divider()
-    if st.button("🚪 Déconnexion", use_container_width=True):
+    menu = st.radio("Menu", ["📊 Dashboard", "🛒 Caisse", "📦 Stock", "💸 Dépenses"])
+    if st.button("Déconnexion"):
         st.session_state['user_id'] = None
         st.rerun()
-    st.caption("Développé par Issa Diallo")
-
-# --- PAGES ---
 
 if menu == "📊 Dashboard":
     st.title("Bilan Financier")
-    # Calcul des Ventes
-    v_data = db.table("ventes").select("total").eq("user_id", user_id).execute().data
-    total_v = sum([x['total'] for x in v_data])
-    
-    # Calcul des Dépenses
-    d_data = db.table("depenses").select("montant").eq("user_id", user_id).execute().data
-    total_d = sum([x['montant'] for x in d_data])
-    
-    benefice = total_v - total_d
-    
+    v = db.table("ventes").select("total").eq("user_id", user_id).execute().data
+    d = db.table("depenses").select("montant").eq("user_id", user_id).execute().data
+    tv, td = sum([x['total'] for x in v]), sum([x['montant'] for x in d])
     c1, c2, c3 = st.columns(3)
-    c1.metric("Ventes Totales", f"{total_v:,} FG")
-    c2.metric("Dépenses Totales", f"{total_d:,} FG", delta_color="inverse")
-    c3.metric("Bénéfice Net", f"{benefice:,} FG")
-    
-    st.divider()
-    st.subheader("Dernières transactions")
-    histo = db.table("ventes").select("*").eq("user_id", user_id).order("date_v", desc=True).limit(5).execute().data
-    if histo:
-        st.dataframe(pd.DataFrame(histo))
+    c1.metric("Ventes", f"{tv:,} FG")
+    c2.metric("Dépenses", f"{td:,} FG")
+    c3.metric("Bénéfice", f"{tv-td:,} FG")
 
 elif menu == "🛒 Caisse":
-    st.title("Nouvelle Vente")
+    st.title("Vente")
     prods = db.table("produits").select("*").eq("user_id", user_id).gt("qte", 0).execute().data
     if prods:
-        with st.form("form_vente"):
-            p_nom = st.selectbox("Article", [x['nom'] for x in prods])
-            q_v = st.number_input("Quantité", min_value=1)
-            if st.form_submit_button("Valider la vente"):
-                p_info = [x for x in prods if x['nom'] == p_nom][0]
-                montant = q_v * p_info['p_vente']
-                db.table("ventes").insert({"user_id": user_id, "nom_prod": p_nom, "qte_v": q_v, "total": montant}).execute()
-                db.table("produits").update({"qte": p_info['qte'] - q_v}).eq("id", p_info['id']).execute()
-                st.success(f"Vente validée : {montant:,} FG")
-    else:
-        st.warning("Aucun produit disponible en stock.")
+        with st.form("v_f"):
+            p_n = st.selectbox("Article", [x['nom'] for x in prods])
+            q = st.number_input("Quantité", min_value=1)
+            if st.form_submit_button("Vendre"):
+                p_d = [x for x in prods if x['nom'] == p_n][0]
+                mt = q * p_d['p_vente']
+                db.table("ventes").insert({"user_id": user_id, "nom_prod": p_n, "qte_v": q, "total": mt}).execute()
+                db.table("produits").update({"qte": p_d['qte'] - q}).eq("id", p_d['id']).execute()
+                st.success(f"Vendu : {mt:,} FG")
 
 elif menu == "📦 Stock":
-    st.title("Inventaire")
-    with st.form("form_stock"):
-        n = st.text_input("Nom de l'article")
-        pa = st.number_input("Prix d'achat", min_value=0)
-        pv = st.number_input("Prix de vente", min_value=0)
-        qt = st.number_input("Quantité", min_value=1)
+    st.title("Stock")
+    with st.form("s_f"):
+        n, pa, pv, qt = st.text_input("Nom"), st.number_input("Achat"), st.number_input("Vente"), st.number_input("Qté", min_value=1)
         if st.form_submit_button("Ajouter"):
             db.table("produits").insert({"user_id": user_id, "nom": n, "p_achat": pa, "p_vente": pv, "qte": qt}).execute()
-            st.success("Produit ajouté !")
-    
-    stock = db.table("produits").select("*").eq("user_id", user_id).execute().data
-    if stock:
-        st.dataframe(pd.DataFrame(stock)[['nom', 'p_achat', 'p_vente', 'qte']])
+            st.success("Ajouté !")
 
 elif menu == "💸 Dépenses":
-    st.title("Dépenses de l'entreprise")
-    with st.form("form_dep"):
-        motif = st.text_input("Motif (Ex: Loyer, Transport, Internet)")
-        mt = st.number_input("Montant", min_value=0)
+    st.title("Dépenses")
+    with st.form("d_f"):
+        mot = st.text_input("Motif")
+        mt_d = st.number_input("Montant", min_value=0)
         if st.form_submit_button("Enregistrer"):
-            db.table("depenses").insert({"user_id": user_id, "motif": motif, "montant": mt}).execute()
+            db.table("depenses").insert({"user_id": user_id, "motif": mot, "montant": mt_d}).execute()
             st.success("Dépense enregistrée !")
-    
-    dep_list = db.table("depenses").select("*").eq("user_id", user_id).order("date_d", desc=True).execute().data
-    if dep_list:
-        st.table(pd.DataFrame(dep_list)[['date_d', 'motif', 'montant']])
