@@ -8,8 +8,8 @@ import io
 st.set_page_config(page_title="VenteUp Elite Pro", layout="wide", page_icon="💎")
 
 def get_connection():
-    # Passage à la v4 pour s'assurer que les nouvelles colonnes (gerant) sont bien créées
-    return sqlite3.connect('venteup_v4.db', check_same_thread=False)
+    # Utilisation de la v5 pour garantir l'intégration de tous les champs
+    return sqlite3.connect('venteup_v5.db', check_same_thread=False)
 
 def init_db():
     conn = get_connection()
@@ -24,7 +24,7 @@ def init_db():
     
     if c.execute("SELECT count(*) FROM entreprise").fetchone()[0] == 0:
         maintenant = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        c.execute("""INSERT INTO entreprise VALUES (1, 'Ma Boutique', 'Conakry', '+224', 'Gérant', 'FG', ?, 0, 'VENTEUP-2026', 'Merci !')""", (maintenant,))
+        c.execute("""INSERT INTO entreprise VALUES (1, 'Ma Boutique', 'Conakry', '+224', 'Gérant', 'FG', ?, 0, 'VENTEUP-2026', 'Merci de votre confiance !')""", (maintenant,))
     conn.commit()
     conn.close()
 
@@ -48,15 +48,15 @@ if jours_restants <= 0 and not est_active:
     ### Pour continuer à utiliser VenteUp, veuillez contacter le développeur :
     
     👨‍💻 **Issa Diallo**
-    📞 **Direct & WhatsApp :** [+224 610 51 89 73](https://wa.me/224610518973)
+    📞 **WhatsApp & Direct :** [+224 610 51 89 73](https://wa.me/224610518973)
     📧 **Email :** Issatanoudiallo2024@gmail.com
     
-    *Une clé d'activation unique vous sera fournie pour débloquer toutes les fonctionnalités.*
+    *Contactez Issa Diallo pour obtenir votre clé d'activation et débloquer le système.*
     """)
     
     st.divider()
     code = st.text_input("Entrez votre clé d'activation", type="password")
-    if st.button("Activer maintenant"):
+    if st.button("Activer l'application"):
         if code == info_ent['code_activation']:
             conn = get_connection()
             conn.execute("UPDATE entreprise SET est_active = 1 WHERE id = 1")
@@ -64,7 +64,7 @@ if jours_restants <= 0 and not est_active:
             st.success("✅ Activation réussie !")
             st.rerun()
         else:
-            st.error("❌ Code incorrect. Veuillez contacter Issa Diallo au 610 51 89 73.")
+            st.error("❌ Code incorrect. Contactez Issa Diallo au 610 51 89 73.")
     st.stop()
 
 # --- BARRE LATÉRALE ---
@@ -77,10 +77,11 @@ with st.sidebar:
     st.write("🛠️ **Support Technique**")
     st.caption("Développeur : **Issa Diallo**")
     st.caption("📞 +224 610 51 89 73")
+    st.caption("📧 Issatanoudiallo2024@gmail.com")
 
-# --- DASHBOARD ---
+# --- CONTENU ---
 if menu == "📊 Dashboard":
-    st.title(f"Tableau de Bord - {info_ent['nom']}")
+    st.title(f"Tableau de Bord - {info_ent['nom']} 📊")
     conn = get_connection()
     df_v = pd.read_sql("SELECT * FROM ventes", conn)
     df_p = pd.read_sql("SELECT * FROM produits", conn)
@@ -94,7 +95,6 @@ if menu == "📊 Dashboard":
     alertes = len(df_p[df_p['qte'] <= df_p['seuil']]) if not df_p.empty else 0
     c3.metric("Alertes Stock", alertes, delta_color="inverse")
 
-# --- CAISSE ---
 elif menu == "🛒 Caisse":
     st.title("Vente Directe 🛒")
     conn = get_connection()
@@ -104,9 +104,9 @@ elif menu == "🛒 Caisse":
             p_nom = st.selectbox("Produit", prods['nom'].tolist())
             qte_v = st.number_input("Quantité", min_value=1, step=1)
             p_info = prods[prods['nom'] == p_nom].iloc[0]
-            total = qte_v * p_info['p_vente']
-            st.write(f"## Total : {total:,.0f} {info_ent['devise']}")
+            st.write(f"## Total : {qte_v * p_info['p_vente']:,.0f} {info_ent['devise']}")
             if st.button("Valider la vente", type="primary", use_container_width=True):
+                total = qte_v * p_info['p_vente']
                 benef = (p_info['p_vente'] - p_info['p_achat']) * qte_v
                 c = conn.cursor()
                 c.execute("INSERT INTO ventes (produit_id, nom_prod, qte_v, date_v, total, benef) VALUES (?,?,?,?,?,?)",
@@ -116,7 +116,6 @@ elif menu == "🛒 Caisse":
                 st.success(f"Vendu ! {info_ent['message_recu']}")
     conn.close()
 
-# --- STOCKS ---
 elif menu == "📦 Stocks & Appro":
     st.title("Gestion des Produits 📦")
     t1, t2, t3 = st.tabs(["Inventaire", "Réapprovisionner", "Nouveau Produit"])
@@ -142,39 +141,39 @@ elif menu == "📦 Stocks & Appro":
             n = st.text_input("Nom")
             pa = st.number_input("Prix d'achat")
             pv = st.number_input("Prix de vente")
-            q = st.number_input("Stock", min_value=0)
+            q = st.number_input("Stock initial", min_value=0)
             if st.form_submit_button("Créer"):
                 conn.execute("INSERT INTO produits (nom, p_achat, p_vente, qte, seuil) VALUES (?,?,?,?,5)", (n, pa, pv, q))
                 conn.commit()
                 st.rerun()
     conn.close()
 
-# --- HISTORIQUE ---
 elif menu == "🧾 Historique & Export":
-    st.title("Historique 🧾")
+    st.title("Historique & Export 🧾")
     conn = get_connection()
     df_v = pd.read_sql("SELECT * FROM ventes ORDER BY id DESC", conn)
     if not df_v.empty:
-        st.dataframe(df_v, use_container_width=True)
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine='xlsxwriter') as writer:
             df_v.to_excel(writer, index=False)
-        st.download_button("📥 Rapport Excel", data=out.getvalue(), file_name="ventes.xlsx")
+        st.download_button("📥 Télécharger Rapport Excel", data=out.getvalue(), file_name="ventes.xlsx")
+        st.dataframe(df_v, use_container_width=True)
     conn.close()
 
-# --- PARAMÈTRES ---
 elif menu == "⚙️ Paramètres":
-    st.title("Paramètres Boutique ⚙️")
+    st.title("Configuration ⚙️")
     with st.form("entreprise_form"):
-        n_nom = st.text_input("Nom de l'entreprise", value=info_ent['nom'])
-        n_ger = st.text_input("Nom du Gérant", value=info_ent['gerant'])
-        n_adr = st.text_input("Adresse", value=info_ent['adresse'])
-        n_tel = st.text_input("Téléphone", value=info_ent['telephone'])
+        col1, col2 = st.columns(2)
+        n_nom = col1.text_input("Nom de l'entreprise", value=info_ent['nom'])
+        n_ger = col2.text_input("Nom du Gérant", value=info_ent['gerant'])
+        n_adr = st.text_input("Adresse Physique", value=info_ent['adresse'])
+        n_tel = st.text_input("Numéro de téléphone", value=info_ent['telephone'])
         n_dev = st.selectbox("Devise", ["FG", "GNF", "CFA", "$"], index=0)
-        if st.form_submit_button("Sauvegarder"):
+        n_msg = st.text_area("Message sur reçu", value=info_ent['message_recu'])
+        if st.form_submit_button("Sauvegarder les modifications"):
             conn = get_connection()
-            conn.execute("UPDATE entreprise SET nom=?, adresse=?, telephone=?, gerant=?, devise=? WHERE id=1", 
-                         (n_nom, n_adr, n_tel, n_ger, n_dev))
+            conn.execute("UPDATE entreprise SET nom=?, adresse=?, telephone=?, gerant=?, devise=?, message_recu=? WHERE id=1", 
+                         (n_nom, n_adr, n_tel, n_ger, n_dev, n_msg))
             conn.commit()
-            st.success("Profil mis à jour !")
+            st.success("Paramètres mis à jour !")
             st.rerun()
