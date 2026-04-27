@@ -8,6 +8,7 @@ import io
 st.set_page_config(page_title="VenteUp Elite Pro", layout="wide", page_icon="💎")
 
 def get_connection():
+    # On reste sur v6 pour la stabilité
     return sqlite3.connect('venteup_v6.db', check_same_thread=False)
 
 def init_db():
@@ -34,7 +35,7 @@ conn = get_connection()
 info_ent = pd.read_sql("SELECT * FROM entreprise WHERE id = 1", conn).iloc[0]
 conn.close()
 
-# --- SECURITÉ ISSA DIALLO ---
+# --- SÉCURITÉ & COORDONNÉES ISSA DIALLO ---
 date_inst = datetime.strptime(info_ent['date_installation'], "%Y-%m-%d %H:%M:%S")
 jours_restants = 3 - (datetime.now() - date_inst).days
 est_active = info_ent['est_active'] == 1
@@ -42,37 +43,50 @@ est_active = info_ent['est_active'] == 1
 if jours_restants <= 0 and not est_active:
     st.error("🚨 Période d'essai terminée")
     st.title("🔒 Application Verrouillée")
-    st.markdown(f"**Contactez Issa Diallo pour activer :**\n\n📞 WhatsApp: [+224 610 51 89 73](https://wa.me/224610518973)\n📧 {info_ent.get('email', 'Issatanoudiallo2024@gmail.com')}")
+    st.markdown(f"""
+    ### Pour continuer, veuillez contacter le développeur :
+    
+    👨‍💻 **Issa Diallo**
+    📞 **WhatsApp & Direct :** [+224 610 51 89 73](https://wa.me/224610518973)
+    📧 **Email :** Issatanoudiallo2024@gmail.com
+    
+    *Demandez votre clé d'activation pour débloquer définitivement votre gestion.*
+    """)
+    st.divider()
     code = st.text_input("Clé d'activation", type="password")
     if st.button("Activer"):
         if code == info_ent['code_activation']:
             conn = get_connection()
             conn.execute("UPDATE entreprise SET est_active = 1 WHERE id = 1")
             conn.commit()
+            st.success("✅ Activé !")
             st.rerun()
     st.stop()
 
 # --- NAVIGATION ---
 with st.sidebar:
     st.title(f"🏬 {info_ent['nom']}")
-    st.caption(f"Gérant: {info_ent['gerant']}")
+    st.write(f"👤 Gérant : **{info_ent['gerant']}**")
     menu = st.radio("Menu", ["📊 Dashboard", "🛒 Caisse", "📦 Stocks & Appro", "🧾 Factures & Historique", "⚙️ Paramètres"])
     st.divider()
-    st.caption(f"Dev: Issa Diallo\n📞 610 51 89 73")
+    st.write("🛠️ **Support Issa Diallo**")
+    st.caption("📞 +224 610 51 89 73")
+    st.caption("📧 Issatanoudiallo2024@gmail.com")
 
-# --- FONCTIONS ---
+# --- DASHBOARD ---
 if menu == "📊 Dashboard":
-    st.title("Performance 📊")
+    st.title(f"Tableau de Bord - {info_ent['nom']} 📊")
     conn = get_connection()
     df_v = pd.read_sql("SELECT * FROM ventes", conn)
     df_p = pd.read_sql("SELECT * FROM produits", conn)
     conn.close()
     c1, c2, c3 = st.columns(3)
     c1.metric("Chiffre d'Affaire", f"{df_v['total'].sum() if not df_v.empty else 0:,.0f} {info_ent['devise']}")
-    c2.metric("Bénéfice", f"{df_v['benef'].sum() if not df_v.empty else 0:,.0f} {info_ent['devise']}")
+    c2.metric("Bénéfice Net", f"{df_v['benef'].sum() if not df_v.empty else 0:,.0f} {info_ent['devise']}")
     alertes = len(df_p[df_p['qte'] <= df_p['seuil']]) if not df_p.empty else 0
     c3.metric("Alertes Stock", alertes)
 
+# --- CAISSE ---
 elif menu == "🛒 Caisse":
     st.title("Vente Directe 🛒")
     conn = get_connection()
@@ -81,7 +95,8 @@ elif menu == "🛒 Caisse":
         p_nom = st.selectbox("Produit", prods['nom'].tolist())
         qte_v = st.number_input("Quantité", min_value=1, step=1)
         p_info = prods[prods['nom'] == p_nom].iloc[0]
-        if st.button("Enregistrer la vente", type="primary"):
+        st.write(f"### Total : {qte_v * p_info['p_vente']:,.0f} {info_ent['devise']}")
+        if st.button("Valider la vente", type="primary"):
             total = qte_v * p_info['p_vente']
             benef = (p_info['p_vente'] - p_info['p_achat']) * qte_v
             c = conn.cursor()
@@ -92,100 +107,80 @@ elif menu == "🛒 Caisse":
             st.success(f"Vendu ! {info_ent['message_recu']}")
     conn.close()
 
+# --- STOCKS ---
 elif menu == "📦 Stocks & Appro":
-    st.title("Stocks 📦")
-    t1, t2, t3 = st.tabs(["Inventaire", "Réappro", "Nouveau"])
+    st.title("Gestion Stocks 📦")
+    t1, t2, t3 = st.tabs(["Inventaire", "Réapprovisionner", "Nouveau"])
     conn = get_connection()
     with t1:
         df_p = pd.read_sql("SELECT * FROM produits", conn)
         st.dataframe(df_p, use_container_width=True)
-    with t2:
-        p_sel = st.selectbox("Produit", df_p['nom'].tolist() if not df_p.empty else [])
-        q_p = st.number_input("Quantité à ajouter", min_value=1)
-        if st.button("Ajouter"):
-            conn.execute("UPDATE produits SET qte = qte + ? WHERE nom = ?", (q_p, p_sel))
+        id_del = st.number_input("ID à supprimer", min_value=0)
+        if st.button("Supprimer Produit"):
+            conn.execute("DELETE FROM produits WHERE id=?", (id_del,))
             conn.commit()
             st.rerun()
+    with t2:
+        if not df_p.empty:
+            p_s = st.selectbox("Produit", df_p['nom'].tolist())
+            q_a = st.number_input("Quantité reçue", min_value=1)
+            if st.button("Ajouter au stock"):
+                conn.execute("UPDATE produits SET qte = qte + ? WHERE nom = ?", (q_a, p_s))
+                conn.commit()
+                st.success("Stock mis à jour")
     with t3:
-        with st.form("n"):
+        with st.form("new"):
             nom = st.text_input("Nom")
             pa = st.number_input("Prix Achat")
             pv = st.number_input("Prix Vente")
-            q = st.number_input("Initial", min_value=0)
-            if st.form_submit_button("Créer"):
+            q = st.number_input("Stock initial", min_value=0)
+            if st.form_submit_button("Ajouter"):
                 conn.execute("INSERT INTO produits (nom, p_achat, p_vente, qte, seuil) VALUES (?,?,?,?,5)", (nom, pa, pv, q))
                 conn.commit()
                 st.rerun()
     conn.close()
 
+# --- FACTURES & HISTORIQUE ---
 elif menu == "🧾 Factures & Historique":
-    st.title("Facturation & Historique 🧾")
+    st.title("Facturation 🧾")
     conn = get_connection()
     df_v = pd.read_sql("SELECT * FROM ventes ORDER BY id DESC", conn)
-    
     if not df_v.empty:
-        st.subheader("Dernières Ventes")
         st.dataframe(df_v, use_container_width=True)
-        
         st.divider()
-        st.subheader("📄 Générer une Facture")
-        col_v, col_c = st.columns(2)
-        
-        v_id = col_v.selectbox("Sélectionner la vente (ID)", df_v['id'].tolist())
+        st.subheader("📄 Générer Facture")
+        col1, col2 = st.columns(2)
+        v_id = col1.selectbox("ID Vente", df_v['id'].tolist())
         v_data = df_v[df_v['id'] == v_id].iloc[0]
+        status = col2.radio("Statut", ["PAYÉ ✅", "NON PAYÉ ❌"])
         
-        status = col_c.radio("Statut du paiement", ["PAYÉ ✅", "NON PAYÉ ❌"])
-        client_nom = st.text_input("Nom du Client")
-        client_tel = st.text_input("Téléphone Client")
-        client_adr = st.text_input("Adresse Client")
+        c_nom = st.text_input("Client")
+        c_tel = st.text_input("Téléphone Client")
         
-        if st.checkbox("Prêt pour l'impression ?"):
-            # --- DESIGN DE LA FACTURE ---
+        if st.checkbox("Voir la facture"):
             st.markdown(f"""
-            <div style="border: 2px solid #333; padding: 20px; border-radius: 10px; background-color: white; color: black;">
+            <div style="border: 2px solid #333; padding: 20px; background-color: white; color: black; border-radius: 10px;">
                 <div style="display: flex; justify-content: space-between;">
-                    <div style="text-align: left;">
-                        <h2 style="margin-bottom:0;">{info_ent['nom']}</h2>
-                        <p>📍 {info_ent['adresse']}<br>📞 {info_ent['telephone']}<br>👤 Gérant: {info_ent['gerant']}</p>
+                    <div>
+                        <h2>{info_ent['nom']}</h2>
+                        <p>📍 {info_ent['adresse']}<br>📞 {info_ent['telephone']}</p>
                     </div>
                     <div style="text-align: right;">
-                        <h3 style="color: grey;">FACTURE #00{v_id}</h3>
-                        <p><b>Client :</b> {client_nom}<br>📞 {client_tel}<br>📍 {client_adr}</p>
+                        <h3>FACTURE #00{v_id}</h3>
+                        <p><b>Client :</b> {c_nom}<br>📞 {c_tel}</p>
                     </div>
                 </div>
                 <hr>
-                <table style="width: 100%; text-align: left; border-collapse: collapse;">
-                    <tr style="background-color: #eee;">
-                        <th style="padding: 10px;">Désignation</th>
-                        <th>Quantité</th>
-                        <th>Prix Unitaire</th>
-                        <th>Total</th>
-                    </tr>
-                    <tr>
-                        <td style="padding: 10px;">{v_data['nom_prod']}</td>
-                        <td>{v_data['qte_v']}</td>
-                        <td>{v_data['total']/v_data['qte_v'] if v_data['qte_v'] > 0 else 0:,.0f} {info_ent['devise']}</td>
-                        <td><b>{v_data['total']:,.0f} {info_ent['devise']}</b></td>
-                    </tr>
-                </table>
+                <p>Produit : <b>{v_data['nom_prod']}</b> | Quantité : {v_data['qte_v']}</p>
+                <h3>Total : {v_data['total']:,.0f} {info_ent['devise']}</h3>
                 <hr>
-                <div style="display: flex; justify-content: space-between; align-items: center;">
-                    <div>
-                        <p style="font-size: 1.2em;">Statut : <b>{status}</b></p>
-                        <p><i>{info_ent['message_recu']}</i></p>
-                    </div>
-                    <div style="text-align: center;">
-                        <div style="border: 2px dashed #ccc; width: 150px; height: 100px; line-height: 100px; color: #ccc;">
-                            CACHET ICI
-                        </div>
-                    </div>
-                </div>
-                <p style="font-size: 0.8em; text-align: center; margin-top: 20px;">Facture générée le {datetime.now().strftime('%d/%m/%Y à %H:%M')} par VenteUp</p>
+                <p>Statut : <b>{status}</b></p>
+                <div style="border: 1px dashed #ccc; width: 120px; height: 80px; text-align: center; line-height: 80px; float: right;">CACHET</div>
+                <div style="clear: both;"></div>
             </div>
             """, unsafe_allow_html=True)
-            st.button("🖨️ Lancer l'impression (Navigateur)")
-    conn.close()
 
+# --- PARAMÈTRES ---
 elif menu == "⚙️ Paramètres":
     st.title("Paramètres ⚙️")
     with st.form("p"):
@@ -195,7 +190,7 @@ elif menu == "⚙️ Paramètres":
         n_tel = st.text_input("Téléphone", value=info_ent['telephone'])
         n_dev = st.selectbox("Devise", ["FG", "GNF", "$", "CFA"], index=0)
         n_msg = st.text_area("Message Reçu", value=info_ent['message_recu'])
-        if st.form_submit_button("Enregistrer"):
+        if st.form_submit_button("Sauvegarder"):
             conn = get_connection()
             conn.execute("UPDATE entreprise SET nom=?, gerant=?, adresse=?, telephone=?, devise=?, message_recu=? WHERE id=1",
                          (n_nom, n_ger, n_adr, n_tel, n_dev, n_msg))
