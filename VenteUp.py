@@ -1,196 +1,124 @@
 import streamlit as st
+import sqlite3
 import pandas as pd
-import os
 from datetime import datetime
-import base64
 
-# --- 1. SYSTÈME DE LICENCE ---
-CODE_DEBLOCAGE_SECRET = "ISSAVUP2026" 
-FICHIER_LICENCE = "licence_config.csv"
-
-def charger_licence():
-    if os.path.exists(FICHIER_LICENCE):
-        try: return pd.read_csv(FICHIER_LICENCE).iloc[0].to_dict()
-        except: pass
-    data = {"date_debut": datetime.now().strftime("%Y-%m-%d"), "statut": "essai"}
-    pd.DataFrame([data]).to_csv(FICHIER_LICENCE, index=False)
-    return data
-
-licence = charger_licence()
-date_debut = datetime.strptime(licence["date_debut"], "%Y-%m-%d")
-jours_restants = 7 - (datetime.now() - date_debut).days
-if licence["statut"] == "essai" and jours_restants < 0:
-    st.error(f"🚫 ESSAI TERMINÉ. Contactez le concepteur au 610 51 89 73.")
-    st.stop()
-
-# --- 2. GESTION DES FICHIERS ET SAUVEGARDE ---
-def charger_csv(nom, col):
-    if os.path.exists(nom):
-        try: return pd.read_csv(nom)
-        except: return pd.DataFrame(columns=col)
-    return pd.DataFrame(columns=col)
-
-def sauver_csv(df, nom):
-    df.to_csv(nom, index=False)
-
-# Chargement des données permanentes
-if 'stock' not in st.session_state:
-    st.session_state.stock = charger_csv("stock_data.csv", ["Produit", "Prix Achat", "Prix Vente", "Quantité"])
-if 'ventes' not in st.session_state:
-    st.session_state.ventes = charger_csv("ventes_data.csv", ["Date", "Client", "Total", "Bénéfice", "Statut"])
-
-# --- FIX: Mémoire permanente de la boutique ---
-FICHIER_INFO = "boutique_config.csv"
-if 'boutique_info' not in st.session_state:
-    df_info = charger_csv(FICHIER_INFO, ["nom", "adresse", "tel", "cachet"])
-    if not df_info.empty:
-        st.session_state.boutique_info = df_info.iloc[0].to_dict()
-        st.session_state.cachet_base64 = st.session_state.boutique_info.get("cachet")
-    else:
-        st.session_state.boutique_info = {"nom": "NOM DE LA BOUTIQUE", "adresse": "ADRESSE", "tel": "TELEPHONE"}
-        st.session_state.cachet_base64 = None
-
-# Initialisation Panier (Temporel)
-if 'panier' not in st.session_state: st.session_state.panier = []
-
+# --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="VenteUp Pro", layout="wide")
 
-# --- 3. BARRE LATÉRALE ---
-with st.sidebar:
-    st.title("🚀 VenteUp Pro")
-    choix = st.radio("MENU", ["🛒 Caisse", "📦 Stock", "📈 Historique", "⚙️ Paramètres"])
-    st.write("---")
-    st.write("**Concepteur :** Issa Diallo\n📞 610 51 89 73")
+# --- INITIALISATION DE LA BASE DE DONNÉES ---
+def init_db():
+    conn = sqlite3.connect('venteup.db', check_same_thread=False)
+    c = conn.cursor()
+    # Table des produits
+    c.execute('''CREATE TABLE IF NOT EXISTS produits
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  nom TEXT, 
+                  prix_achat REAL, 
+                  prix_vente REAL, 
+                  quantite INTEGER, 
+                  seuil_alerte INTEGER)''')
+    # Table des ventes
+    c.execute('''CREATE TABLE IF NOT EXISTS ventes
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT, 
+                  produit_id INTEGER, 
+                  quantite_vendue INTEGER, 
+                  date_vente TIMESTAMP, 
+                  total_vente REAL, 
+                  benefice_vente REAL,
+                  FOREIGN KEY(produit_id) REFERENCES produits(id))''')
+    conn.commit()
+    conn.close()
 
-# --- 4. CAISSE & FACTURE IMAGE ---
-if choix == "🛒 Caisse":
-    st.header("🛒 Terminal de Vente")
-    col1, col2 = st.columns([1, 1.2])
-    
+# --- FONCTIONS UTILITAIRES ---
+def get_db_connection():
+    return sqlite3.connect('venteup.db', check_same_thread=False)
+
+# --- LOGIQUE DE L'APPLICATION ---
+init_db()
+
+st.sidebar.title("💰 VenteUp Menu")
+menu = st.sidebar.radio("Navigation", ["Tableau de Bord", "Ventes", "Stock/Inventaire"])
+
+if menu == "Tableau de Bord":
+    st.title("📊 Performance Commerciale")
+    conn = get_db_connection()
+    df_ventes = pd.read_sql("SELECT * FROM ventes", conn)
+    df_produits = pd.read_sql("SELECT * FROM produits", conn)
+    conn.close()
+
+    # Indicateurs (KPIs)
+    col1, col2, col3 = st.columns(3)
     with col1:
-        if not st.session_state.stock.empty:
-            p_sel = st.selectbox("Article", st.session_state.stock["Produit"])
-            info = st.session_state.stock[st.session_state.stock["Produit"] == p_sel].iloc[0]
-            q = st.number_input("Quantité", min_value=1, value=1)
-            if st.button("🛒 Ajouter", use_container_width=True):
-                if q <= info["Quantité"]:
-                    st.session_state.panier.append({"Produit":p_sel,"Qte":q,"Prix":info["Prix Vente"],"Total":info["Prix Vente"]*q,"Ben":(info["Prix Vente"]-info["Prix Achat"])*q})
-                    st.rerun()
-                else: st.error("Stock insuffisant !")
-    
+        ca_total = df_ventes['total_vente'].sum() if not df_ventes.empty else 0
+        st.metric("Chiffre d'Affaires", f"{ca_total:,.0f} GNf")
     with col2:
-        if st.session_state.panier:
-            st.subheader("Panier")
-            st.table(pd.DataFrame(st.session_state.panier)[["Produit", "Qte", "Total"]])
-            if st.button("🗑️ Vider le panier"): st.session_state.panier = []; st.rerun()
+        ben_total = df_ventes['benefice_vente'].sum() if not df_ventes.empty else 0
+        st.metric("Bénéfice Net", f"{ben_total:,.0f} GNf")
+    with col3:
+        alertes = len(df_produits[df_produits['quantite'] <= df_produits['seuil_alerte']])
+        st.metric("Ruptures de stock", alertes, delta_color="inverse" if alertes > 0 else "normal")
 
-    if st.session_state.panier:
-        st.write("---")
-        st.subheader("📝 Infos Client")
-        c1, c2, c3 = st.columns(3)
-        nom_c = c1.text_input("Nom Client")
-        tel_c = c2.text_input("Téléphone")
-        adr_c = c3.text_input("Adresse")
-        statut = st.radio("Paiement", ["Payé ✅", "Dette 🔴"], horizontal=True)
-        
-        if st.button("📸 GÉNÉRER LA FACTURE (IMAGE)", use_container_width=True):
-            if not nom_c: st.error("Nom client requis")
-            else:
-                total_v = sum(i['Total'] for i in st.session_state.panier)
-                date_v = datetime.now().strftime("%d/%m/%Y %H:%M")
-                col_statut = "#28a745" if "Payé" in statut else "#dc3545"
+    if not df_ventes.empty:
+        st.subheader("Historique des ventes")
+        st.dataframe(df_ventes.sort_values(by='date_vente', ascending=False), use_container_width=True)
 
-                st.components.v1.html(f"""
-                <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-                <div id="f-zone" style="width:450px; padding:20px; background:white; color:black; border:1px solid #000; font-family:Arial;">
-                    <div style="text-align:center; border-bottom:2px solid #000; padding-bottom:10px;">
-                        <h2 style="margin:0;">{st.session_state.boutique_info['nom'].upper()}</h2>
-                        <p style="font-size:12px;">{st.session_state.boutique_info['adresse']} | {st.session_state.boutique_info['tel']}</p>
-                    </div>
-                    <p style="font-size:12px;"><b>Client:</b> {nom_c} <br> <b>Date:</b> {date_v}</p>
-                    <table style="width:100%; border-collapse:collapse; font-size:12px;">
-                        <tr style="background:#eee;"><th>Désign.</th><th>Qté</th><th>Total</th></tr>
-                        {"".join([f"<tr><td style='border:1px solid #ddd; padding:5px;'>{i['Produit']}</td><td style='border:1px solid #ddd; text-align:center;'>{i['Qte']}</td><td style='border:1px solid #ddd; text-align:right;'>{i['Total']:,}</td></tr>" for i in st.session_state.panier])}
-                    </table>
-                    <h3 style="text-align:right; margin-top:10px;">TOTAL: {total_v:,} GNF</h3>
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        {f'<img src="data:image/png;base64,{st.session_state.cachet_base64}" style="width:80px;">' if st.session_state.cachet_base64 else '<span></span>'}
-                        <div style="background:{col_statut}; color:white; padding:5px; border-radius:3px; font-size:12px;">{statut.upper()}</div>
-                    </div>
-                </div>
-                <button id="dl" style="width:100%; margin-top:10px; padding:15px; background:green; color:white; border:none; border-radius:5px; cursor:pointer;">⬇️ ENREGISTRER DANS LA GALERIE</button>
-                <script>
-                    document.getElementById('dl').onclick = function() {{
-                        html2canvas(document.querySelector("#f-zone")).then(canvas => {{
-                            let link = document.createElement('a');
-                            link.download = 'facture_{nom_c}.png';
-                            link.href = canvas.toDataURL("image/png");
-                            link.click();
-                        }});
-                    }};
-                </script>
-                """, height=600)
-                
-                # --- SAUVEGARDE ---
-                new_v = {"Date":date_v, "Client":nom_c, "Total":total_v, "Bénéfice":sum(i['Ben'] for i in st.session_state.panier), "Statut":statut}
-                st.session_state.ventes = pd.concat([st.session_state.ventes, pd.DataFrame([new_v])], ignore_index=True)
-                sauver_csv(st.session_state.ventes, "ventes_data.csv")
-                for i in st.session_state.panier:
-                    st.session_state.stock.loc[st.session_state.stock["Produit"]==i["Produit"], "Quantité"] -= i["Qte"]
-                sauver_csv(st.session_state.stock, "stock_data.csv")
-
-# --- 5. STOCK (AVEC RÉAPPRO ET SUPPRESSION ARTICLE) ---
-elif choix == "📦 Stock":
-    st.header("📦 Gestion Stock")
-    t1, t2, t3 = st.tabs(["🔄 Réappro", "➕ Nouveau", "🗑️ Gérer/Supprimer"])
-    with t1:
-        if not st.session_state.stock.empty:
-            p_reap = st.selectbox("Article", st.session_state.stock["Produit"])
-            q_plus = st.number_input("Quantité à ajouter", min_value=1)
-            if st.button("Valider l'ajout"):
-                st.session_state.stock.loc[st.session_state.stock["Produit"] == p_reap, "Quantité"] += q_plus
-                sauver_csv(st.session_state.stock, "stock_data.csv"); st.success("Mis à jour !"); st.rerun()
-    with t2:
-        with st.form("n"):
-            n = st.text_input("Nom")
-            pa = st.number_input("Prix Achat", 0)
-            pv = st.number_input("Prix Vente", 0)
-            q = st.number_input("Quantité", 1)
-            if st.form_submit_button("Créer"):
-                st.session_state.stock = pd.concat([st.session_state.stock, pd.DataFrame([{"Produit":n,"Prix Achat":pa,"Prix Vente":pv,"Quantité":q}])], ignore_index=True)
-                sauver_csv(st.session_state.stock, "stock_data.csv"); st.rerun()
-    with t3:
-        st.dataframe(st.session_state.stock, use_container_width=True)
-        if not st.session_state.stock.empty:
-            p_del = st.selectbox("Supprimer un article", st.session_state.stock["Produit"])
-            if st.button("⚠️ Supprimer définitivement"):
-                st.session_state.stock = st.session_state.stock[st.session_state.stock["Produit"] != p_del]
-                sauver_csv(st.session_state.stock, "stock_data.csv"); st.rerun()
-
-# --- 6. HISTORIQUE (AVEC SUPPRESSION TRANSACTION) ---
-elif choix == "📈 Historique":
-    st.header("📈 Historique des Ventes")
-    if not st.session_state.ventes.empty:
-        st.dataframe(st.session_state.ventes, use_container_width=True)
-        st.write("---")
-        idx_del = st.number_input("Entrez l'index de la vente à supprimer", min_value=0, max_value=len(st.session_state.ventes)-1, step=1)
-        if st.button("🗑️ Supprimer cette transaction"):
-            st.session_state.ventes = st.session_state.ventes.drop(st.session_state.ventes.index[idx_del])
-            sauver_csv(st.session_state.ventes, "ventes_data.csv"); st.rerun()
-    else: st.info("Aucune vente enregistrée.")
-
-# --- 7. PARAMÈTRES (SAUVEGARDE PERMANENTE) ---
-elif choix == "⚙️ Paramètres":
-    st.header("⚙️ Boutique")
-    nom_b = st.text_input("Nom de la Boutique", st.session_state.boutique_info['nom'])
-    adr_b = st.text_input("Adresse", st.session_state.boutique_info['adresse'])
-    tel_b = st.text_input("Tél", st.session_state.boutique_info['tel'])
-    img = st.file_uploader("Cachet (PNG)", type=['png', 'jpg'])
+elif menu == "Ventes":
+    st.title("🛒 Enregistrer une Vente")
+    conn = get_db_connection()
+    df_dispo = pd.read_sql("SELECT id, nom, prix_vente, prix_achat, quantite FROM produits WHERE quantite > 0", conn)
     
-    if st.button("💾 ENREGISTRER DÉFINITIVEMENT"):
-        if img:
-            st.session_state.cachet_base64 = base64.b64encode(img.getvalue()).decode()
-        st.session_state.boutique_info = {"nom": nom_b, "adresse": adr_b, "tel": tel_b, "cachet": st.session_state.cachet_base64}
-        # Sauvegarde physique dans le fichier
-        pd.DataFrame([st.session_state.boutique_info]).to_csv(FICHIER_INFO, index=False)
-        st.success("Toutes les informations ont été enregistrées sur le disque !")
+    if not df_dispo.empty:
+        with st.form("form_vente"):
+            choix = st.selectbox("Produit", df_dispo['nom'].tolist())
+            qte = st.number_input("Quantité", min_value=1, step=1)
+            submit = st.form_submit_button("Valider la vente")
+
+            if submit:
+                # Récupérer infos produit sélectionné
+                info = df_dispo[df_dispo['nom'] == choix].iloc[0]
+                total = qte * info['prix_vente']
+                benefice = (info['prix_vente'] - info['prix_achat']) * qte
+                
+                c = conn.cursor()
+                # 1. Enregistrer la vente
+                c.execute("INSERT INTO ventes (produit_id, quantite_vendue, date_vente, total_vente, benefice_vente) VALUES (?,?,?,?,?)",
+                          (int(info['id']), qte, datetime.now(), total, benefice))
+                # 2. Mettre à jour le stock
+                c.execute("UPDATE produits SET quantite = quantite - ? WHERE id = ?", (qte, int(info['id'])))
+                conn.commit()
+                st.success(f"Vente de {choix} enregistrée !")
+    else:
+        st.warning("L'inventaire est vide. Ajoutez des produits d'abord.")
+    conn.close()
+
+elif menu == "Stock/Inventaire":
+    st.title("📦 Gestion des Stocks")
+    
+    # Formulaire d'ajout
+    with st.expander("➕ Ajouter un nouveau produit"):
+        with st.form("ajout_produit"):
+            nom = st.text_input("Désignation")
+            c1, c2 = st.columns(2)
+            pa = c1.number_input("Prix d'Achat", min_value=0)
+            pv = c2.number_input("Prix de Vente", min_value=0)
+            qte_init = st.number_input("Quantité initiale", min_value=1)
+            seuil = st.number_input("Seuil d'alerte", min_value=1, value=5)
+            btn = st.form_submit_button("Enregistrer le produit")
+            
+            if btn:
+                conn = get_db_connection()
+                c = conn.cursor()
+                c.execute("INSERT INTO produits (nom, prix_achat, prix_vente, quantite, seuil_alerte) VALUES (?,?,?,?,?)",
+                          (nom, pa, pv, qte_init, seuil))
+                conn.commit()
+                conn.close()
+                st.success("Produit ajouté !")
+                st.rerun()
+
+    # Affichage de l'inventaire
+    conn = get_db_connection()
+    df_inv = pd.read_sql("SELECT * FROM produits", conn)
+    conn.close()
+    st.subheader("État des stocks")
+    st.dataframe(df_inv, use_container_width=True)
