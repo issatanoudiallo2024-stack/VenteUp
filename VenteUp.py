@@ -38,7 +38,7 @@ if st.session_state['user_id'] is None:
             st.success("Compte créé !")
     st.stop()
 
-# --- INFOS BOUTIQUE ---
+# --- RÉCUPÉRATION INFOS ---
 user_id = st.session_state['user_id']
 user_info = db.table("users").select("*").eq("id", user_id).execute().data[0]
 devise = user_info.get('devise', 'FG')
@@ -50,28 +50,40 @@ with st.sidebar:
     if st.button("🚪 Déconnexion"):
         st.session_state['user_id'] = None
         st.rerun()
-    # TA SIGNATURE RÉTABLIE
     st.caption("✍️ Dev: ISSA DIALLO")
     st.caption("📧 issatanoudiallo2024@gmail.com")
     st.caption("📞 610 51 89 73")
 
-# --- BILAN ---
+# --- 1. BILAN ---
 if menu == "📊 Bilan":
     st.header("📊 État de la Caisse")
     v = db.table("ventes").select("total").eq("user_id", user_id).execute().data
     d = db.table("depenses").select("montant").eq("user_id", user_id).execute().data
     tot_v, tot_d = sum([x['total'] for x in v]), sum([x['montant'] for x in d])
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Ventes", f"{tot_v:,} {devise}")
-    c2.metric("Dépenses", f"{tot_d:,} {devise}")
-    c3.metric("Solde Net", f"{tot_v - tot_d:,} {devise}")
+    
+    st.markdown(f"""
+    <div style="display: flex; flex-wrap: wrap; gap: 10px; justify-content: center;">
+        <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; min-width: 200px; text-align: center; border-left: 5px solid #2E7D32;">
+            <p style="margin:0; color: #666;">Ventes</p>
+            <h2 style="margin:0; color: #2E7D32;">{tot_v:,} {devise}</h2>
+        </div>
+        <div style="background-color: #f0f2f6; padding: 20px; border-radius: 10px; min-width: 200px; text-align: center; border-left: 5px solid #D32F2F;">
+            <p style="margin:0; color: #666;">Dépenses</p>
+            <h2 style="margin:0; color: #D32F2F;">{tot_d:,} {devise}</h2>
+        </div>
+        <div style="background-color: #2E7D32; padding: 20px; border-radius: 10px; min-width: 200px; text-align: center; color: white;">
+            <p style="margin:0; opacity: 0.8;">Solde Net</p>
+            <h2 style="margin:0;">{tot_v - tot_d:,} {devise}</h2>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
-# --- VENDRE (FACTURE DESIGN CLIENT DROITE) ---
+# --- 2. VENDRE (FACTURE CLIENT DROITE + EMAIL BOUTIQUE) ---
 elif menu == "🛒 Vendre":
     st.header("🛒 Terminal de Vente")
     prods = db.table("produits").select("*").eq("user_id", user_id).gt("qte", 0).execute().data
     if prods:
-        c1, c2 = st.columns([1, 1.2])
+        c1, c2 = st.columns([1, 1.3])
         with c1:
             with st.form("vente_pro"):
                 p_n = st.selectbox("Article", [x['nom'] for x in prods])
@@ -82,49 +94,50 @@ elif menu == "🛒 Vendre":
                 ct = st.text_input("Numéro")
                 cm = st.text_input("Mail")
                 ca = st.text_input("Adresse")
-                if st.form_submit_button("Valider et Générer Facture"):
+                if st.form_submit_button("Valider la Vente", use_container_width=True):
                     sel = [x for x in prods if x['nom'] == p_n][0]
-                    total_net = (q * sel['p_vente']) - rab
-                    db.table("ventes").insert({
-                        "user_id":user_id, "nom_prod":p_n, "qte_v":q, "total":total_net,
-                        "client_nom":cn, "client_tel":ct, "client_mail":cm, "client_adresse":ca, "rabais":rab
-                    }).execute()
+                    t_net = (q * sel['p_vente']) - rab
+                    db.table("ventes").insert({"user_id":user_id, "nom_prod":p_n, "qte_v":q, "total":t_net, "client_nom":cn, "client_tel":ct, "client_mail":cm, "client_adresse":ca, "rabais":rab}).execute()
                     db.table("produits").update({"qte": sel['qte'] - q}).eq("id", sel['id']).execute()
-                    st.session_state['f'] = {"n":cn,"t":ct,"m":cm,"a":ca,"p":p_n,"q":q,"net":total_net,"r":rab, "pv":sel['p_vente']}
+                    st.session_state['f'] = {"n":cn,"t":ct,"m":cm,"a":ca,"p":p_n,"q":q,"net":t_net,"r":rab, "pv":sel['p_vente']}
                     st.rerun()
-        
         if 'f' in st.session_state:
             f = st.session_state['f']
             with c2:
                 st.markdown(f"""
-                <div style="background:white; color:black; padding:25px; border:1px solid #ccc; border-radius:10px;">
+                <div style="background:white; color:black; padding:30px; border:1px solid #ccc; border-radius:15px; font-family: sans-serif;">
                     <div style="display:flex; justify-content:space-between;">
                         <div style="width:48%; text-align:left;">
-                            <h3 style="margin:0;">{user_info['nom_ent']}</h3>
-                            <small>{user_info.get('adresse','')}<br>{user_info.get('telephone','')}</small>
+                            <h3 style="margin:0; color:#333;">{user_info['nom_ent']}</h3>
+                            <p style="margin:2px 0; font-size:12px;">{user_info.get('adresse','')}</p>
+                            <p style="margin:2px 0; font-size:12px;">Tel: {user_info.get('telephone','')}</p>
+                            <p style="margin:2px 0; font-size:12px;">Email: {user_info.get('email_boutique','')}</p>
                         </div>
-                        <div style="width:48%; text-align:right;">
-                            <b style="color:#666;">CLIENT</b><br>
+                        <div style="width:48%; text-align:right; border-left: 1px solid #eee; padding-left: 10px;">
+                            <b style="color:gray; font-size:10px;">CLIENT</b><br>
                             <b>{f['n']}</b><br>
                             <small>{f['t']}<br>{f['m']}<br>{f['a']}</small>
                         </div>
                     </div>
-                    <hr style="margin:20px 0;">
+                    <hr style="margin:20px 0; border: 0; border-top: 1px dashed #eee;">
                     <table style="width:100%;">
-                        <tr><td><b>Désignation</b></td><td style="text-align:right;"><b>Total</b></td></tr>
-                        <tr><td>{f['p']} ({f['pv']:,} x {f['q']})</td><td style="text-align:right;">{f['pv']*f['q']:,} {devise}</td></tr>
+                        <tr style="border-bottom: 1px solid #eee;"><th style="text-align:left;">Désignation</th><th style="text-align:right;">Total</th></tr>
+                        <tr><td>{f['p']} ({f['q']} x {f['pv']:,})</td><td style="text-align:right;">{f['pv']*f['q']:,} {devise}</td></tr>
                         {f'<tr style="color:red;"><td>Rabais</td><td style="text-align:right;">- {f["r"]:,} {devise}</td></tr>' if f['r']>0 else ''}
                     </table>
-                    <h2 style="text-align:right; color:#2E7D32; margin-top:20px;">NET À PAYER : {f['net']:,} {devise}</h2>
+                    <div style="margin-top:20px; border-top: 2px solid #333; padding-top:10px; display:flex; justify-content:space-between;">
+                        <h3 style="margin:0;">NET À PAYER</h3>
+                        <h2 style="margin:0; color:#2E7D32;">{f['net']:,} {devise}</h2>
+                    </div>
                 </div>
                 """, unsafe_allow_html=True)
 
-# --- STOCK ---
+# --- 3. STOCK ---
 elif menu == "📦 Stock":
     st.header("📦 Gestion Stock")
     res = db.table("produits").select("*").eq("user_id", user_id).execute().data
     if res:
-        st.table(pd.DataFrame(res)[['nom', 'p_achat', 'p_vente', 'qte']])
+        st.dataframe(pd.DataFrame(res)[['nom', 'p_achat', 'p_vente', 'qte']], use_container_width=True)
     with st.expander("Ajouter un produit"):
         with st.form("st_f"):
             n, pa, pv, q = st.text_input("Nom"), st.number_input("Prix Achat"), st.number_input("Prix Vente"), st.number_input("Qté", min_value=1)
@@ -132,23 +145,24 @@ elif menu == "📦 Stock":
                 db.table("produits").insert({"user_id":user_id, "nom":n, "p_achat":pa, "p_vente":pv, "qte":q}).execute()
                 st.rerun()
 
-# --- DÉPENSES ---
+# --- 4. DÉPENSES ---
 elif menu == "💸 Dépenses":
     with st.form("dp_f"):
         m, mt = st.text_input("Motif"), st.number_input("Montant")
-        if st.form_submit_button("OK"):
+        if st.form_submit_button("Enregistrer"):
             db.table("depenses").insert({"user_id":user_id, "motif":m, "montant":mt}).execute()
             st.success("Enregistré")
 
-# --- PARAMÈTRES ---
+# --- 5. PARAMÈTRES (AVEC EMAIL BOUTIQUE) ---
 elif menu == "⚙️ Paramètres":
-    st.header("⚙️ Configuration")
+    st.header("⚙️ Configuration Boutique")
     with st.form("conf_f"):
         n_e = st.text_input("Nom Boutique", value=user_info['nom_ent'])
+        em_b = st.text_input("Email Boutique", value=user_info.get('email_boutique',''))
         addr = st.text_input("Adresse Boutique", value=user_info.get('adresse',''))
         tel = st.text_input("Téléphone", value=user_info.get('telephone',''))
-        dev = st.selectbox("Devise", ["FG", "GNF", "FCFA", "EURO", "DOLLAR", "£", "$"], index=0)
-        if st.form_submit_button("Sauvegarder"):
-            db.table("users").update({"nom_ent":n_e, "adresse":addr, "telephone":tel, "devise":dev}).eq("id", user_id).execute()
+        dev = st.selectbox("Devise", ["FG", "GNF", "FCFA", "EURO", "DOLLAR"], index=0)
+        if st.form_submit_button("Sauvegarder", use_container_width=True):
+            db.table("users").update({"nom_ent":n_e, "email_boutique":em_b, "adresse":addr, "telephone":tel, "devise":dev}).eq("id", user_id).execute()
             st.success("Paramètres mis à jour !")
             st.rerun()
