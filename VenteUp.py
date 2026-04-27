@@ -140,7 +140,7 @@ elif menu == "💸 Dépenses":
             db.table("depenses").insert({"user_id":user_id, "motif":m, "montant":mt}).execute()
             st.success("Enregistré")
 
-# --- PARAMÈTRES (DEVISES ET ADRESSE) ---
+# --- PARAMÈTRES ---
 elif menu == "⚙️ Paramètres":
     st.header("⚙️ Configuration")
     with st.form("conf_f"):
