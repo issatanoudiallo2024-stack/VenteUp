@@ -3,7 +3,7 @@ import pandas as pd
 from datetime import datetime
 from supabase import create_client
 
-# CONFIGURATION SUPABASE
+# CONFIGURATION
 URL = "https://enikglfabczfpahbfzvq.supabase.co"
 KEY = "sb_publishable_h169bGdSBk_SpbiXwH0KbQ_JE6Cm7lS"
 
@@ -18,7 +18,7 @@ st.set_page_config(page_title="VenteUp Pro", layout="wide")
 if 'user_id' not in st.session_state:
     st.session_state['user_id'] = None
 
-# --- CONNEXION / INSCRIPTION ---
+# --- ACCÈS ---
 if st.session_state['user_id'] is None:
     st.title("📈 VenteUp Pro")
     mode = st.radio("Action", ["Connexion", "Créer un compte"], horizontal=True)
@@ -40,14 +40,13 @@ if st.session_state['user_id'] is None:
             st.success("Compte créé !")
     st.stop()
 
-# --- INFOS UTILISATEUR ---
 user_id = st.session_state['user_id']
 user_info = db.table("users").select("*").eq("id", user_id).execute().data[0]
 
-# --- MENU LATÉRAL ---
+# --- SIDEBAR ---
 with st.sidebar:
     st.header(f"🏪 {user_info.get('nom_ent')}")
-    menu = st.radio("Menu", ["📊 Bilan", "🛒 Vendre", "📦 Stock", "💸 Dépenses", "⚙️ Paramètres"])
+    menu = st.radio("Menu", ["📊 Bilan", "📈 Statistiques", "🛒 Vendre", "📦 Stock", "💸 Dépenses", "⚙️ Paramètres"])
     st.divider()
     if st.button("🚪 Quitter"):
         st.session_state['user_id'] = None
@@ -58,92 +57,114 @@ with st.sidebar:
 
 # --- PAGES ---
 
-if menu == "⚙️ Paramètres":
-    st.header("⚙️ Configuration de la Boutique")
-    st.info("Ces informations apparaîtront sur vos factures.")
-    with st.form("settings"):
-        new_nom = st.text_input("Nom de l'entreprise", value=user_info.get('nom_ent', ''))
-        adresse = st.text_input("Adresse", value=user_info.get('adresse', ''))
-        tel = st.text_input("Téléphone", value=user_info.get('telephone', ''))
-        if st.form_submit_button("Enregistrer les réglages"):
-            db.table("users").update({"nom_ent": new_nom, "adresse": adresse, "telephone": tel}).eq("id", user_id).execute()
-            st.success("Paramètres mis à jour !")
-            st.rerun()
+if menu == "📊 Bilan":
+    st.header("Bilan Financier")
+    v = db.table("ventes").select("total").eq("user_id", user_id).execute().data
+    d = db.table("depenses").select("montant").eq("user_id", user_id).execute().data
+    
+    recettes = sum([x['total'] for x in v])
+    depenses = sum([x['montant'] for x in d])
+    benefice = recettes - depenses
+    
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Recettes Totales", f"{recettes:,} FG")
+    c2.metric("Dépenses Totales", f"{depenses:,} FG", delta_color="inverse")
+    c3.metric("Bénéfice Net", f"{benefice:,} FG")
+
+elif menu == "📈 Statistiques":
+    st.header("📈 Analyse des Ventes")
+    v_data = db.table("ventes").select("created_at, total").eq("user_id", user_id).execute().data
+    if v_data:
+        df_v = pd.DataFrame(v_data)
+        df_v['date'] = pd.to_datetime(df_v['created_at']).dt.date
+        stats = df_v.groupby('date')['total'].sum()
+        st.line_chart(stats)
+    else:
+        st.info("Aucune donnée statistique pour le moment.")
 
 elif menu == "🛒 Vendre":
     st.header("🛒 Terminal de Vente")
     prods = db.table("produits").select("*").eq("user_id", user_id).gt("qte", 0).execute().data
     if prods:
-        c1, c2 = st.columns([1, 1.2])
+        c1, c2 = st.columns([1, 1.3])
         with c1:
-            with st.form("vente_form"):
+            with st.form("v_form"):
                 nom_p = st.selectbox("Article", [x['nom'] for x in prods])
                 qte = st.number_input("Quantité", min_value=1)
-                st.markdown("---")
                 st.markdown("**Infos Client**")
-                client_n = st.text_input("Nom du Client", "Passager")
-                client_t = st.text_input("Téléphone Client")
-                if st.form_submit_button("Valider la vente"):
-                    p_sel = [x for x in prods if x['nom'] == nom_p][0]
-                    total = qte * p_sel['p_vente']
-                    db.table("ventes").insert({"user_id":user_id, "nom_prod":nom_p, "qte_v":qte, "total":total}).execute()
-                    db.table("produits").update({"qte": p_sel['qte'] - qte}).eq("id", p_sel['id']).execute()
-                    st.session_state['derniere_facture'] = {"c":client_n, "ct":client_t, "p":nom_p, "q":qte, "pu":p_sel['p_vente'], "tot":total}
+                cl_n = st.text_input("Nom du Client")
+                cl_t = st.text_input("Téléphone")
+                cl_m = st.text_input("Email")
+                cl_a = st.text_input("Adresse")
+                if st.form_submit_button("Générer Facture"):
+                    p_s = [x for x in prods if x['nom'] == nom_p][0]
+                    tot = qte * p_s['p_vente']
+                    db.table("ventes").insert({"user_id":user_id, "nom_prod":nom_p, "qte_v":qte, "total":tot}).execute()
+                    db.table("produits").update({"qte": p_s['qte'] - qte}).eq("id", p_s['id']).execute()
+                    st.session_state['fact'] = {"n":cl_n, "t":cl_t, "m":cl_m, "a":cl_a, "p":nom_p, "q":qte, "pu":p_s['p_vente'], "tot":tot}
                     st.rerun()
-        
-        if 'derniere_facture' in st.session_state:
-            f = st.session_state['derniere_facture']
+
+        if 'fact' in st.session_state:
+            f = st.session_state['fact']
             with c2:
-                st.markdown(f"""
-                <div style="background:white; padding:20px; color:black; border-radius:10px; border:2px solid #eee;">
-                    <center><h2>{user_info.get('nom_ent')}</h2>
-                    <p>{user_info.get('adresse', '')} | Tel: {user_info.get('telephone', '')}</p></center>
+                fact_html = f"""
+                <div style="background:white; padding:25px; color:black; border:1px solid #ccc; border-radius:10px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <div style="text-align: left; width: 45%;">
+                            <h3 style="margin:0;">{user_info.get('nom_ent')}</h3>
+                            <p style="font-size:12px;">📍 {user_info.get('adresse', 'N/A')}<br>📞 {user_info.get('telephone', 'N/A')}</p>
+                        </div>
+                        <div style="text-align: right; width: 45%; border-left: 1px solid #eee; padding-left:10px;">
+                            <h4 style="margin:0; color:gray;">CLIENT</h4>
+                            <p style="font-size:13px;"><b>{f['n']}</b><br>{f['t']}<br>{f['m']}<br>{f['a']}</p>
+                        </div>
+                    </div>
                     <hr>
-                    <p><b>Client :</b> {f['c']} ({f['ct']})</p>
-                    <p><b>Date :</b> {datetime.now().strftime('%d/%m/%Y')}</p>
-                    <table style="width:100%">
-                        <tr><td>{f['p']} x {f['q']}</td><td style="text-align:right">{f['tot']:,} FG</td></tr>
+                    <table style="width:100%; border-collapse:collapse;">
+                        <tr style="background:#f2f2f2;"><th>Article</th><th>Qté</th><th>Total</th></tr>
+                        <tr><td>{f['p']}</td><td style="text-align:center;">{f['q']}</td><td style="text-align:right;">{f['tot']:,} FG</td></tr>
                     </table>
-                    <hr>
-                    <h3 style="text-align:right">TOTAL : {f['tot']:,} FG</h3>
-                    <center><p style="font-size:10px">Merci de votre confiance !</p></center>
+                    <h2 style="text-align:right; color:#2E7D32;">TOTAL : {f['tot']:,} FG</h2>
                 </div>
-                """, unsafe_allow_html=True)
-                st.info("💡 Pour enregistrer : Faire une capture d'écran ou Imprimer (Ctrl+P)")
+                """
+                st.markdown(fact_html, unsafe_allow_html=True)
+                st.caption("Capture d'écran pour enregistrer l'image.")
 
 elif menu == "📦 Stock":
-    st.header("📦 Gestion du Stock")
-    tab_s1, tab_s2 = st.tabs(["Inventaire", "Ajouter Produit"])
+    st.header("📦 Stock & Réapprovisionnement")
+    res = db.table("produits").select("*").eq("user_id", user_id).execute().data
+    if res:
+        df = pd.DataFrame(res)
+        alerte = df[df['qte'] <= 5]
+        if not alerte.empty:
+            st.error(f"⚠️ RÉAPPROVISIONNEMENT URGENT : {', '.join(alerte['nom'].tolist())}")
+        st.table(df[['nom', 'p_vente', 'qte']])
     
-    with tab_s2:
+    with st.expander("Ajouter un nouvel article"):
         with st.form("add"):
-            n = st.text_input("Nom article")
-            pv = st.number_input("Prix de vente", min_value=0)
-            q = st.number_input("Quantité initiale", min_value=1)
-            if st.form_submit_button("Ajouter"):
+            n = st.text_input("Nom")
+            pv = st.number_input("Prix Vente", min_value=0)
+            q = st.number_input("Quantité", min_value=1)
+            if st.form_submit_button("Enregistrer"):
                 db.table("produits").insert({"user_id": user_id, "nom": n, "p_vente": pv, "qte": q}).execute()
                 st.rerun()
 
-    with tab_s1:
-        res = db.table("produits").select("*").eq("user_id", user_id).execute().data
-        if res:
-            df = pd.DataFrame(res)
-            # Alerte réapprovisionnement
-            low_stock = df[df['qte'] <= 5]
-            if not low_stock.empty:
-                st.warning(f"⚠️ RÉAPPROVISIONNEMENT NÉCESSAIRE pour : {', '.join(low_stock['nom'].tolist())}")
-            st.table(df[['nom', 'p_vente', 'qte']])
-
-elif menu == "📊 Bilan":
-    st.header("Bilan financier")
-    v = db.table("ventes").select("total").eq("user_id", user_id).execute().data
-    total = sum([x['total'] for x in v])
-    st.metric("Chiffre d'Affaires", f"{total:,} FG")
-
 elif menu == "💸 Dépenses":
-    st.header("💸 Dépenses")
-    m = st.text_input("Motif")
-    mt = st.number_input("Montant", min_value=0)
-    if st.button("Enregistrer"):
-        db.table("depenses").insert({"user_id": user_id, "motif": m, "montant": mt}).execute()
-        st.success("Enregistré")
+    st.header("💸 Sorties de caisse")
+    with st.form("dep"):
+        m = st.text_input("Motif")
+        mt = st.number_input("Montant", min_value=0)
+        if st.form_submit_button("Enregistrer la dépense"):
+            db.table("depenses").insert({"user_id": user_id, "motif": m, "montant": mt}).execute()
+            st.success("Dépense enregistrée.")
+
+elif menu == "⚙️ Paramètres":
+    st.header("⚙️ Infos Boutique")
+    with st.form("set"):
+        nb = st.text_input("Nom Entreprise", value=user_info.get('nom_ent'))
+        ad = st.text_input("Adresse", value=user_info.get('adresse'))
+        tl = st.text_input("Téléphone", value=user_info.get('telephone'))
+        if st.form_submit_button("Mettre à jour"):
+            db.table("users").update({"nom_ent": nb, "adresse": ad, "telephone": tl}).eq("id", user_id).execute()
+            st.success("Modifié !")
+            st.rerun()
