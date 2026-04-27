@@ -15,7 +15,6 @@ def get_supabase():
 
 db = get_supabase()
 
-# --- CONFIGURATION DE LA PAGE ---
 st.set_page_config(page_title="VenteUp Pro", layout="wide", page_icon="📈")
 
 if 'user_id' not in st.session_state:
@@ -47,13 +46,12 @@ if st.session_state['user_id'] is None:
                 st.error("Erreur d'inscription.")
     st.stop()
 
-# --- RÉCUPÉRATION INFOS BOUTIQUE ---
+# --- INFOS BOUTIQUE ---
 user_id = st.session_state['user_id']
 user_info = db.table("users").select("*").eq("id", user_id).execute().data[0]
 
-# --- MENU LATÉRAL ---
 with st.sidebar:
-    st.header(f"🏪 {user_info.get('nom_ent', 'Ma Boutique')}")
+    st.header(f"🏪 {user_info.get('nom_ent')}")
     menu = st.radio("Navigation", ["📊 Dashboard", "🛒 Caisse & Facture", "📦 Stock", "💸 Dépenses", "⚙️ Paramètres"])
     st.divider()
     if st.button("🚪 Déconnexion", use_container_width=True):
@@ -66,78 +64,117 @@ with st.sidebar:
 # --- PAGES ---
 
 if menu == "⚙️ Paramètres":
-    st.title("⚙️ Paramètres de la Boutique")
-    with st.form("form_settings"):
-        nom_b = st.text_input("Nom de la Boutique", value=user_info.get('nom_ent', ''))
-        adr_b = st.text_input("Adresse Géographique", value=user_info.get('adresse', ''))
-        tel_b = st.text_input("Téléphone Boutique", value=user_info.get('telephone', ''))
-        if st.form_submit_button("Enregistrer les modifications"):
-            db.table("users").update({"nom_ent": nom_b, "adresse": adr_b, "telephone": tel_b}).eq("id", user_id).execute()
+    st.title("⚙️ Configuration de la Boutique")
+    with st.form("settings"):
+        n_b = st.text_input("Nom de la Boutique", value=user_info.get('nom_ent', ''))
+        a_b = st.text_input("Adresse", value=user_info.get('adresse', ''))
+        t_b = st.text_input("Téléphone", value=user_info.get('telephone', ''))
+        e_b = st.text_input("Email de la boutique", value=user_info.get('email_boutique', ''))
+        if st.form_submit_button("Sauvegarder"):
+            db.table("users").update({"nom_ent": n_b, "adresse": a_b, "telephone": t_b, "email_boutique": e_b}).eq("id", user_id).execute()
             st.success("Paramètres mis à jour !")
 
 elif menu == "🛒 Caisse & Facture":
-    st.title("🛒 Terminal de Vente")
+    st.title("🛒 Caisse")
     prods = db.table("produits").select("*").eq("user_id", user_id).gt("qte", 0).execute().data
-    
     if prods:
-        c1, c2 = st.columns([1, 1.2])
+        c1, c2 = st.columns([1, 1.3])
         with c1:
             with st.form("v_form"):
                 p_n = st.selectbox("Article", [x['nom'] for x in prods])
                 q = st.number_input("Quantité", min_value=1)
-                st.markdown("**👤 Client**")
+                rabais = st.number_input("Rabais / Remise (FG)", min_value=0)
+                st.markdown("**👤 Infos Client**")
                 cl_n = st.text_input("Nom Client", "Passager")
                 cl_t = st.text_input("Téléphone Client")
-                cachet = st.checkbox("Appliquer cachet 'PAYÉ'", value=True)
-                if st.form_submit_button("Générer la Facture"):
+                cl_a = st.text_input("Adresse Client")
+                cl_m = st.text_input("Email Client")
+                etat = st.selectbox("Statut de paiement", ["PAYÉ", "NON PAYÉ"])
+                if st.form_submit_button("Générer Facture"):
                     p_i = [x for x in prods if x['nom'] == p_n][0]
-                    total = q * p_i['p_vente']
-                    db.table("ventes").insert({"user_id": user_id, "nom_prod": p_n, "qte_v": q, "total": total}).execute()
+                    total_brut = q * p_i['p_vente']
+                    total_net = total_brut - rabais
+                    db.table("ventes").insert({"user_id": user_id, "nom_prod": p_n, "qte_v": q, "total": total_net}).execute()
                     db.table("produits").update({"qte": p_i['qte'] - q}).eq("id", p_i['id']).execute()
-                    st.session_state['facture'] = {"n": cl_n, "t": cl_t, "p": p_n, "q": q, "pu": p_i['p_vente'], "tot": total, "c": cachet}
+                    st.session_state['f'] = {"n":cl_n,"t":cl_t,"a":cl_a,"m":cl_m,"p":p_n,"q":q,"pu":p_i['p_vente'],"brut":total_brut,"net":total_net,"r":rabais,"e":etat}
                     st.rerun()
 
-        if 'facture' in st.session_state:
-            f = st.session_state['facture']
+        if 'f' in st.session_state:
+            f = st.session_state['f']
             with c2:
-                # Design de la facture optimisé pour capture d'écran
-                facture_style = f"""
-                <div style="background-color: white; padding: 30px; border: 2px solid #EEE; color: black; font-family: sans-serif; border-radius: 10px;">
-                    <h1 style="text-align:center; color: #1E88E5; margin-bottom: 5px;">{user_info.get('nom_ent')}</h1>
-                    <p style="text-align:center; margin: 0;">📍 {user_info.get('adresse', 'Conakry, Guinée')}</p>
-                    <p style="text-align:center; margin: 0;">📞 {user_info.get('telephone', '+224 -- -- --')}</p>
-                    <hr style="margin: 20px 0;">
-                    <p><b>Date :</b> {datetime.now().strftime('%d/%m/%Y à %H:%M')}</p>
-                    <p><b>Client :</b> {f['n']} {f'({f["t"]})' if f['t'] else ''}</p>
-                    <table style="width: 100%; border-collapse: collapse; margin-top: 20px;">
-                        <thead>
-                            <tr style="background-color: #F5F5F5;">
-                                <th style="text-align: left; padding: 10px; border-bottom: 2px solid #DDD;">Article</th>
-                                <th style="text-align: center; padding: 10px; border-bottom: 2px solid #DDD;">Qté</th>
-                                <th style="text-align: right; padding: 10px; border-bottom: 2px solid #DDD;">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td style="padding: 15px 10px; border-bottom: 1px solid #EEE;">{f['p']}</td>
-                                <td style="text-align: center; padding: 15px 10px; border-bottom: 1px solid #EEE;">{f['q']}</td>
-                                <td style="text-align: right; padding: 15px 10px; border-bottom: 1px solid #EEE;">{f['tot']:,} FG</td>
-                            </tr>
-                        </tbody>
+                facture_html = f"""
+                <div style="background: white; padding: 25px; color: black; border-radius: 10px; border: 1px solid #ddd;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <div style="width: 45%;">
+                            <h3 style="margin:0; color:#1E88E5;">{user_info.get('nom_ent')}</h3>
+                            <p style="font-size:12px; margin:2px;">📍 {user_info.get('adresse', 'N/A')}</p>
+                            <p style="font-size:12px; margin:2px;">📞 {user_info.get('telephone', 'N/A')}</p>
+                            <p style="font-size:12px; margin:2px;">✉️ {user_info.get('email_boutique', 'N/A')}</p>
+                        </div>
+                        <div style="width: 45%; text-align: right;">
+                            <h4 style="margin:0;">CLIENT</h4>
+                            <p style="font-size:12px; margin:2px;"><b>{f['n']}</b></p>
+                            <p style="font-size:12px; margin:2px;">{f['t']}</p>
+                            <p style="font-size:12px; margin:2px;">{f['a']}</p>
+                            <p style="font-size:12px; margin:2px;">{f['m']}</p>
+                        </div>
+                    </div>
+                    <hr>
+                    <p style="font-size:12px;"><b>Date :</b> {datetime.now().strftime('%d/%m/%Y %H:%M')}</p>
+                    <table style="width:100%; border-collapse: collapse;">
+                        <tr style="background:#f4f4f4;">
+                            <th style="text-align:left; padding:8px;">Article</th>
+                            <th style="text-align:center;">Qté</th>
+                            <th style="text-align:right; padding:8px;">Total</th>
+                        </tr>
+                        <tr>
+                            <td style="padding:8px; border-bottom:1px solid #eee;">{f['p']}</td>
+                            <td style="text-align:center; border-bottom:1px solid #eee;">{f['q']}</td>
+                            <td style="text-align:right; padding:8px; border-bottom:1px solid #eee;">{f['brut']:,} FG</td>
+                        </tr>
                     </table>
-                    <h2 style="text-align: right; margin-top: 20px;">NET À PAYER : {f['tot']:,} FG</h2>
-                    {"<div style='color:red; border:4px solid red; padding:10px; width:120px; text-align:center; font-weight:bold; font-size:24px; transform: rotate(-15deg); margin-top: -30px; opacity: 0.8;'>PAYÉ</div>" if f['c'] else ""}
-                    <div style="margin-top: 50px; text-align: center; font-size: 10px; color: #888;">
-                        <p>Logiciel conçu par ISSA DIALLO (610 51 89 73)</p>
+                    <div style="text-align:right; margin-top:10px;">
+                        <p style="margin:2px;">Rabais : -{f['r']:,} FG</p>
+                        <h2 style="margin:0; color:#1E88E5;">NET : {f['net']:,} FG</h2>
+                    </div>
+                    <div style="margin-top:20px; border:3px solid {'green' if f['e']=='PAYÉ' else 'red'}; color:{'green' if f['e']=='PAYÉ' else 'red'}; width:fit-content; padding:5px 15px; font-weight:bold; transform:rotate(-5deg); font-size:20px;">
+                        {f['e']}
+                    </div>
+                    <div style="margin-top:40px; text-align:center; font-size:10px; color:gray; border-top:1px solid #eee; padding-top:10px;">
+                        Logiciel par ISSA DIALLO (610 51 89 73) | issatanoudiallo2024@gmail.com
                     </div>
                 </div>
                 """
-                st.markdown(facture_style, unsafe_allow_html=True)
-                st.info("💡 Conseil : Pour enregistrer la facture, faites une capture d'écran de la zone blanche ci-dessus.")
-                if st.button("✨ Nouvelle Vente"):
-                    del st.session_state['facture']
+                st.markdown(facture_html, unsafe_allow_html=True)
+                if st.button("Nouvelle Vente"):
+                    del st.session_state['f']
                     st.rerun()
+    else: st.warning("Stock vide.")
 
 elif menu == "📊 Dashboard":
-    st.title("Tableau de bord")
-    # ... (reste du code Dashboard identique)
+    st.title("Dashboard")
+    v = db.table("ventes").select("total").eq("user_id", user_id).execute().data
+    d = db.table("depenses").select("montant").eq("user_id", user_id).execute().data
+    tv, td = sum([x['total'] for x in v]), sum([x['montant'] for x in d])
+    c1, c2, c3 = st.columns(3)
+    c1.metric("Recettes", f"{tv:,} FG")
+    c2.metric("Dépenses", f"{td:,} FG")
+    c3.metric("Bénéfice", f"{tv-td:,} FG")
+
+elif menu == "📦 Stock":
+    st.title("Stock")
+    with st.form("s_f"):
+        n, pa, pv, qt = st.text_input("Article"), st.number_input("Prix Achat"), st.number_input("Prix Vente"), st.number_input("Qté", 1)
+        if st.form_submit_button("Ajouter"):
+            db.table("produits").insert({"user_id": user_id, "nom": n, "p_achat": pa, "p_vente": pv, "qte": qt}).execute()
+            st.success("Ajouté !")
+    res = db.table("produits").select("*").eq("user_id", user_id).execute().data
+    if res: st.dataframe(pd.DataFrame(res)[['nom', 'p_achat', 'p_vente', 'qte']])
+
+elif menu == "💸 Dépenses":
+    st.title("Dépenses")
+    with st.form("d_f"):
+        m, mt = st.text_input("Motif"), st.number_input("Montant")
+        if st.form_submit_button("Enregistrer"):
+            db.table("depenses").insert({"user_id": user_id, "motif": m, "montant": mt}).execute()
+            st.success("Enregistré !")
