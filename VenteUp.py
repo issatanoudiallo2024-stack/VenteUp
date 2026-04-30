@@ -1,204 +1,127 @@
-import streamlit as st
-import pandas as pd
-from supabase import create_client
+import sqlite3
+import os
 from datetime import datetime
+import customtkinter as ctk
+from tkinter import messagebox
+from fpdf import FPDF
 
-# --- CONFIGURATION ---
-URL = "https://enikglfabczfpahbfzvq.supabase.co"
-KEY = "sb_publishable_h169bGdSBk_SpbiXwH0KbQ_JE6Cm7lS"
+# ==========================================
+# INFOS DÉVELOPPEUR (Issa Diallo)
+# ==========================================
+DEV_NAME = "Issa Diallo"
+DEV_TEL = "610 51 89 73"
+DEV_MAIL = "issatanoudiallo2024@gmail.com"
 
-@st.cache_resource
-def init_db(): return create_client(URL, KEY)
-db = init_db()
+# ==========================================
+# LOGIQUE BASE DE DONNÉES
+# ==========================================
+def init_db():
+    conn = sqlite3.connect('venteup_data.db')
+    cursor = conn.cursor()
+    # Table Produits avec Prix d'Achat pour le bénéfice
+    cursor.execute('''CREATE TABLE IF NOT EXISTS produits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        nom TEXT NOT NULL,
+        prix_achat REAL NOT NULL,
+        prix_vente REAL NOT NULL,
+        stock INTEGER DEFAULT 0)''')
+    # Table Ventes
+    cursor.execute('''CREATE TABLE IF NOT EXISTS ventes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        client TEXT,
+        total REAL,
+        date TEXT)''')
+    conn.commit()
+    conn.close()
 
-st.set_page_config(page_title="VenteUp Ultimate", layout="wide", page_icon="🏢")
+# ==========================================
+# GÉNÉRATEUR DE FACTURE PDF
+# ==========================================
+class FacturePDF(FPDF):
+    def footer(self):
+        self.set_y(-20)
+        self.set_font('Arial', 'I', 8)
+        info = f"Développé par {DEV_NAME} | Tel: {DEV_TEL} | Email: {DEV_MAIL}"
+        self.cell(0, 10, info, 0, 0, 'C')
 
-# --- DESIGN CSS CUSTOM ---
-st.markdown("""
-    <style>
-    .main { background-color: #f4f7f6; }
-    [data-testid="stSidebar"] { background-color: #1e293b; color: white; }
-    .stMetric { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-    .bill-container {
-        background: white; color: black; padding: 40px; border-radius: 10px;
-        border: 1px solid #ddd; box-shadow: 0 10px 25px rgba(0,0,0,0.1);
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    }
-    .signature-box { font-size: 13px; color: #94a3b8; margin-top: 50px; border-top: 1px solid #334155; padding-top: 20px; }
-    </style>
-""", unsafe_allow_html=True)
-
-if 'user_id' not in st.session_state: st.session_state['user_id'] = None
-if 'panier' not in st.session_state: st.session_state['panier'] = []
-
-# --- AUTH ---
-if st.session_state['user_id'] is None:
-    st.title("🔐 Accès VenteUp")
-    u, p = st.text_input("Identifiant"), st.text_input("Mot de passe", type="password")
-    if st.button("Se connecter", use_container_width=True):
-        res = db.table("users").select("*").eq("username", u).eq("password", p).execute()
-        if res.data: 
-            st.session_state['user_id'] = res.data[0]['id']
-            st.rerun()
-    st.stop()
-
-# --- DONNÉES ---
-user = db.table("users").select("*").eq("id", st.session_state['user_id']).execute().data[0]
-devise = user.get('devise', 'FG')
-
-# --- SIDEBAR AVEC TA SIGNATURE ---
-with st.sidebar:
-    st.title(f"🏪 {user['nom_ent']}")
-    menu = st.radio("MENU", ["📊 Bilan", "🛒 Ventes & Facture", "📦 Stock & Réappro", "💸 Dépenses", "⚙️ Paramètres"])
+def creer_facture(nom_client, total):
+    pdf = FacturePDF()
+    pdf.add_page()
+    pdf.set_font("Arial", 'B', 16)
+    pdf.cell(0, 10, "FACTURE VENTEUP", ln=True, align='C')
+    pdf.ln(10)
+    pdf.set_font("Arial", size=12)
+    pdf.cell(0, 10, f"Client : {nom_client}", ln=True)
+    pdf.cell(0, 10, f"Date : {datetime.now().strftime('%d/%m/%Y %H:%M')}", ln=True)
+    pdf.cell(0, 10, f"Total : {total} GNF", ln=True)
+    pdf.ln(20)
+    pdf.cell(0, 10, f"Signature de {DEV_NAME} : ________________", ln=True, align='R')
     
-    st.markdown(f"""
-    <div class="signature-box">
-        <b>DÉVELOPPEUR</b><br>
-        👨‍💻 Issa Diallo<br>
-        📞 610 51 89 73<br>
-        ✉️ {user.get('email_boutique', 'Dev@VenteUp.com')}
-    </div>
-    """, unsafe_allow_html=True)
-    
-    if st.button("🚪 Déconnexion", use_container_width=True):
-        st.session_state['user_id'] = None
-        st.rerun()
+    filename = f"facture_{nom_client}.pdf"
+    pdf.output(filename)
+    return filename
 
-# --- 1. BILAN ---
-if menu == "📊 Bilan":
-    st.header("📊 Performance de la Boutique")
-    v = db.table("ventes").select("total").eq("user_id", user['id']).execute().data
-    d = db.table("depenses").select("montant").eq("user_id", user['id']).execute().data
-    tot_v, tot_d = sum(x['total'] for x in v), sum(x['montant'] for x in d)
-    
-    c1, c2, c3 = st.columns(3)
-    c1.metric("RECETTES", f"{tot_v:,} {devise}")
-    c2.metric("DÉPENSES", f"{tot_d:,} {devise}", delta_color="inverse")
-    c3.metric("SOLDE NET", f"{tot_v - tot_d:,} {devise}")
+# ==========================================
+# INTERFACE GRAPHIQUE (GUI)
+# ==========================================
+class VenteUpApp(ctk.CTk):
+    def __init__(self):
+        super().__init__()
+        self.title(f"VenteUp - Développeur : {DEV_NAME}")
+        self.geometry("700x500")
+        ctk.set_appearance_mode("dark")
 
-# --- 2. VENTES & FACTURE (DESIGN DEMANDÉ) ---
-elif menu == "🛒 Ventes & Facture":
-    st.header("🛒 Terminal de Vente")
-    prods = db.table("produits").select("*").eq("user_id", user['id']).gt("qte", 0).execute().data
-    
-    c_vente, c_fact = st.columns([1, 1.4])
-    
-    with c_vente:
-        with st.expander("➕ Ajouter un produit", expanded=True):
-            art = st.selectbox("Article", [x['nom'] for x in prods])
-            qte = st.number_input("Quantité", min_value=1)
-            rab = st.number_input("Rabais sur l'article", min_value=0)
-            if st.button("Ajouter au panier"):
-                sel = [x for x in prods if x['nom'] == art][0]
-                st.session_state['panier'].append({
-                    "id": sel['id'], "nom": art, "q": qte, "pv": sel['p_vente'], 
-                    "r": rab, "total": (qte * sel['p_vente']) - rab
-                })
-        
-        if st.session_state['panier']:
-            st.write("---")
-            cli_n = st.text_input("Nom Client")
-            cli_t = st.text_input("Téléphone Client")
-            cli_a = st.text_input("Adresse Client")
-            cli_m = st.text_input("Email Client")
-            cachet = st.file_uploader("Image du Cachet", type=['png', 'jpg'])
-            
-            if st.button("✅ Enregistrer la Vente", use_container_width=True):
-                for i in st.session_state['panier']:
-                    db.table("ventes").insert({"user_id":user['id'], "nom_prod":i['nom'], "qte_v":i['q'], "total":i['total'], "client_nom":cli_n, "rabais":i['r']}).execute()
-                    # Maj Stock
-                    old_q = [x for x in prods if x['id'] == i['id']][0]['qte']
-                    db.table("produits").update({"qte": old_q - i['q']}).eq("id", i['id']).execute()
-                
-                st.session_state['last_f'] = {"client": {"n":cli_n,"t":cli_t,"a":cli_a,"m":cli_m}, "items": st.session_state['panier'], "cachet": cachet}
-                st.session_state['panier'] = []
-                st.rerun()
+        # Titre
+        self.label = ctk.CTkLabel(self, text="GESTION DE VENTE", font=("Arial", 20, "bold"))
+        self.label.pack(pady=20)
 
-    with c_fact:
-        if 'last_f' in st.session_state:
-            f = st.session_state['last_f']
-            st.markdown(f"""
-            <div class="bill-container">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                    <div style="width:48%;">
-                        <h2 style="color:#0f172a; margin:0;">{user['nom_ent']}</h2>
-                        <p style="font-size:13px; line-height:1.5;">
-                            <b>Gérant :</b> {user.get('nom_gerant', 'Non défini')}<br>
-                            📍 {user.get('adresse', 'Localisation non définie')}<br>
-                            📞 {user.get('telephone', 'Numéro non défini')}<br>
-                            ✉️ {user.get('email_boutique', 'Email non défini')}
-                        </p>
-                    </div>
-                    <div style="width:48%; text-align:right;">
-                        <h4 style="margin:0; color:#475569;">FACTURE POUR :</h4>
-                        <p style="font-size:13px; line-height:1.5;">
-                            <b>{f['client']['n']}</b><br>
-                            {f['client']['t']}<br>
-                            {f['client']['a']}<br>
-                            {f['client']['m']}
-                        </p>
-                    </div>
-                </div>
-                <hr style="margin:20px 0;">
-                <table style="width:100%; border-collapse:collapse; font-size:14px;">
-                    <tr style="background:#f1f5f9; text-align:left;">
-                        <th style="padding:10px;">Désignation</th><th>Qté</th><th>P.U</th><th>Rabais</th><th>Total</th>
-                    </tr>
-                    {''.join([f"<tr><td style='padding:10px;'>{i['nom']}</td><td>{i['q']}</td><td>{i['pv']:,}</td><td>{i['r']:,}</td><td>{i['total']:,}</td></tr>" for i in f['items']])}
-                </table>
-                <div style="margin-top:30px; text-align:right;">
-                    <span style="font-size:18px; font-weight:bold; color:#1e293b;">NET À PAYER : {sum(i['total'] for i in f['items']):,} {devise}</span>
-                </div>
-            </div>
-            """, unsafe_allow_html=True)
-            if f['cachet']: st.image(f['cachet'], width=150)
-            st.button("🖼️ Enregistrer en image")
+        # Formulaire
+        self.frame = ctk.CTkFrame(self)
+        self.frame.pack(pady=10, padx=20, fill="both")
 
-# --- 3. STOCK & RÉAPPRO ---
-elif menu == "📦 Stock & Réappro":
-    st.header("📦 Inventaire & Réappro")
-    res = db.table("produits").select("*").eq("user_id", user['id']).execute().data
-    if res:
-        df = pd.DataFrame(res)
-        st.dataframe(df[['id', 'nom', 'p_achat', 'p_vente', 'qte']], use_container_width=True)
-        
-        c_up, c_del = st.columns(2)
-        with c_up:
-            with st.expander("🔄 Réapprovisionnement"):
-                t_re = st.selectbox("Article", [x['nom'] for x in res])
-                q_re = st.number_input("Ajouter quantité", min_value=1)
-                if st.button("Valider"):
-                    old = [x for x in res if x['nom'] == t_re][0]
-                    db.table("produits").update({"qte": old['qte'] + q_re}).eq("id", old['id']).execute()
-                    st.rerun()
-        with c_del:
-            with st.expander("🗑️ Supprimer un article"):
-                t_del = st.selectbox("Article à effacer", [x['nom'] for x in res], key="del")
-                if st.button("Confirmer suppression"):
-                    db.table("produits").delete().eq("nom", t_del).eq("user_id", user['id']).execute()
-                    st.rerun()
+        self.nom_art = ctk.CTkEntry(self.frame, placeholder_text="Nom du produit")
+        self.nom_art.grid(row=0, column=0, padx=10, pady=10)
 
-# --- 4. DÉPENSES ---
-elif menu == "💸 Dépenses":
-    st.header("💸 Sorties de caisse")
-    with st.form("d_f"):
-        mot = st.text_input("Motif")
-        mon = st.number_input("Montant", min_value=0)
-        if st.form_submit_button("Enregistrer"):
-            db.table("depenses").insert({"user_id":user['id'], "motif":mot, "montant":mon}).execute()
-            st.rerun()
+        self.p_achat = ctk.CTkEntry(self.frame, placeholder_text="Prix d'Achat")
+        self.p_achat.grid(row=0, column=1, padx=10, pady=10)
 
-# --- 5. PARAMÈTRES ---
-elif menu == "⚙️ Paramètres":
-    st.header("⚙️ Configuration")
-    with st.form("p_f"):
-        c1, c2 = st.columns(2)
-        n_e = c1.text_input("Nom Boutique", value=user['nom_ent'])
-        n_g = c2.text_input("Nom du Gérant", value=user.get('nom_gerant',''))
-        adr = c1.text_input("Localisation", value=user.get('adresse',''))
-        tel = c2.text_input("Téléphone", value=user.get('telephone',''))
-        em = c1.text_input("Email", value=user.get('email_boutique',''))
-        dv = c2.selectbox("Devise", ["FG", "FCFA", "USD", "EUR"])
-        if st.form_submit_button("Sauvegarder les réglages"):
-            db.table("users").update({"nom_ent":n_e, "nom_gerant":n_g, "adresse":adr, "telephone":tel, "email_boutique":em, "devise":dv}).eq("id", user['id']).execute()
-            st.rerun()
+        self.p_vente = ctk.CTkEntry(self.frame, placeholder_text="Prix de Vente")
+        self.p_vente.grid(row=1, column=0, padx=10, pady=10)
+
+        self.qte = ctk.CTkEntry(self.frame, placeholder_text="Quantité")
+        self.qte.grid(row=1, column=1, padx=10, pady=10)
+
+        # Boutons
+        self.btn_stock = ctk.CTkButton(self, text="Ajouter au Stock", command=self.action_stock, fg_color="green")
+        self.btn_stock.pack(pady=10)
+
+        self.client_name = ctk.CTkEntry(self, placeholder_text="Nom du client (pour facture)")
+        self.client_name.pack(pady=10)
+
+        self.btn_vente = ctk.CTkButton(self, text="Vendre & Facture", command=self.action_vente)
+        self.btn_vente.pack(pady=10)
+
+    def action_stock(self):
+        try:
+            conn = sqlite3.connect('venteup_data.db')
+            cursor = conn.cursor()
+            cursor.execute("INSERT INTO produits (nom, prix_achat, prix_vente, stock) VALUES (?, ?, ?, ?)",
+                           (self.nom_art.get(), float(self.p_achat.get()), float(self.p_vente.get()), int(self.qte.get())))
+            conn.commit()
+            conn.close()
+            messagebox.showinfo("Succès", "Stock mis à jour !")
+        except:
+            messagebox.showerror("Erreur", "Veuillez remplir correctement les champs.")
+
+    def action_vente(self):
+        nom = self.client_name.get()
+        if nom:
+            fname = creer_facture(nom, "À calculer")
+            messagebox.showinfo("Vente", f"Facture générée : {fname}")
+        else:
+            messagebox.showwarning("Attention", "Entrez le nom du client.")
+
+if __name__ == "__main__":
+    init_db()
+    app = VenteUpApp()
+    app.mainloop()
