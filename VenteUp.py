@@ -4,143 +4,143 @@ from datetime import datetime
 from PIL import Image, ImageDraw, ImageFont
 import io
 
-# --- CONFIGURATION INITIALE ---
-st.set_page_config(page_title="VenteUp Pro - Panier", page_icon="🛒", layout="wide")
+# --- CONFIGURATION PAGE ---
+st.set_page_config(page_title="VenteUp Pro - Système Complet", page_icon="🏢", layout="wide")
 
+# --- BASE DE DONNÉES ---
 def init_db():
-    with sqlite3.connect('venteup_v3.db') as conn:
+    with sqlite3.connect('venteup_final.db') as conn:
         cursor = conn.cursor()
         cursor.execute('''CREATE TABLE IF NOT EXISTS produits (
             id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT UNIQUE, 
             p_achat REAL, p_vente REAL, stock INTEGER)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS ventes (
             id INTEGER PRIMARY KEY AUTOINCREMENT, client_nom TEXT, client_tel TEXT,
-            details_achat TEXT, total REAL, date TEXT)''')
+            client_adr TEXT, client_mail TEXT, details TEXT, total REAL, date TEXT)''')
+        cursor.execute('''CREATE TABLE IF NOT EXISTS depenses (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, motif TEXT, montant REAL, date TEXT)''')
         cursor.execute('''CREATE TABLE IF NOT EXISTS config (
-            id INTEGER PRIMARY KEY, boutique TEXT, gerant TEXT, tel TEXT, adresse TEXT)''')
-        cursor.execute("INSERT OR IGNORE INTO config (id, boutique, gerant, tel, adresse) VALUES (1, 'Ma Boutique', 'Gérant', '000', 'Conakry')")
+            id INTEGER PRIMARY KEY, boutique TEXT, gerant TEXT, tel TEXT, mail TEXT, adresse TEXT)''')
+        cursor.execute("INSERT OR IGNORE INTO config (id, boutique, gerant, tel, mail, adresse) VALUES (1, 'Ma Boutique', 'Gérant', '600000000', 'contact@boutique.com', 'Conakry')")
         conn.commit()
 
 init_db()
 
 def get_config():
-    conn = sqlite3.connect('venteup_v3.db')
-    data = conn.execute("SELECT boutique, gerant, tel, adresse FROM config WHERE id=1").fetchone()
+    conn = sqlite3.connect('venteup_final.db')
+    data = conn.execute("SELECT boutique, gerant, tel, mail, adresse FROM config WHERE id=1").fetchone()
     conn.close()
-    return {"boutique": data[0], "gerant": data[1], "tel": data[2], "adr": data[3]}
+    return {"boutique": data[0], "gerant": data[1], "tel": data[2], "mail": data[3], "adr": data[4]}
 
-# --- GÉNÉRATEUR DE FACTURE EN IMAGE ---
-def generer_facture_image(conf, client, panier, total):
-    # Création d'une image blanche
-    img = Image.new('RGB', (600, 800), color=(255, 255, 255))
+# --- GÉNÉRATEUR IMAGE FACTURE ---
+def generer_facture_img(conf, client, panier, total):
+    img = Image.new('RGB', (600, 850), color=(255, 255, 255))
     d = ImageDraw.Draw(img)
+    # Style
+    d.rectangle([0, 0, 600, 100], fill=(46, 204, 113)) # Bandeau Vert Pro
+    d.text((180, 35), conf['boutique'].upper(), fill=(255, 255, 255))
     
-    # Couleurs et Styles
-    d.rectangle([0, 0, 600, 100], fill=(0, 123, 255)) # Bandeau bleu
+    # Infos Entreprise & Client
+    y = 120
+    d.text((20, y), f"Boutique : {conf['boutique']} | Tel : {conf['tel']}", fill=(0,0,0))
+    d.text((20, y+20), f"Client : {client['nom']} | Tel : {client['tel']}", fill=(0,0,0))
+    d.text((20, y+40), f"Adresse : {client['adr']}", fill=(0,0,0))
     
-    # Texte de l'en-tête
-    d.text((200, 30), conf['boutique'].upper(), fill=(255, 255, 255))
-    d.text((20, 120), f"Client : {client['nom']}", fill=(0, 0, 0))
-    d.text((20, 140), f"Tel : {client['tel']}", fill=(0, 0, 0))
-    d.text((400, 120), f"Date : {datetime.now().strftime('%d/%m/%Y')}", fill=(0, 0, 0))
+    d.line([(20, 190), (580, 190)], fill=(0,0,0), width=2)
     
-    d.line([(20, 170), (580, 170)], fill=(200, 200, 200), width=2)
-    
-    # Liste des produits
-    y_offset = 200
-    d.text((20, y_offset), "PRODUIT", fill=(0, 0, 0))
-    d.text((450, y_offset), "PRIX (GNF)", fill=(0, 0, 0))
-    
+    # Articles
+    y = 210
+    d.text((20, y), "DESIGNATION", fill=(0,0,0))
+    d.text((450, y), "TOTAL (GNF)", fill=(0,0,0))
     for item in panier:
-        y_offset += 30
-        d.text((20, y_offset), f"- {item['nom']} (x{item['qte']})", fill=(50, 50, 50))
-        d.text((450, y_offset), f"{item['total']}", fill=(50, 50, 50))
+        y += 30
+        d.text((20, y), f"- {item['nom']} (x{item['qte']})", fill=(50,50,50))
+        d.text((450, y), f"{item['total']}", fill=(50,50,50))
     
-    d.line([(20, y_offset + 40), (580, y_offset + 40)], fill=(0, 0, 0), width=2)
-    d.text((350, y_offset + 60), f"TOTAL : {total} GNF", fill=(255, 0, 0))
+    d.line([(20, y+40), (580, y+40)], fill=(0,0,0), width=2)
+    d.text((300, y+60), f"NET A PAYER : {total} GNF", fill=(255,0,0))
+    d.text((200, 800), f"Signature Gérant : {conf['gerant']}", fill=(150,150,150))
     
-    d.text((200, 750), f"Merci de votre confiance ! - {conf['gerant']}", fill=(100, 100, 100))
-    
-    # Sauvegarde en mémoire
-    img_byte_arr = io.BytesIO()
-    img.save(img_byte_arr, format='PNG')
-    return img_byte_arr.getvalue()
+    buf = io.BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
 
 # --- INTERFACE ---
 conf = get_config()
-st.sidebar.title(f"🚀 {conf['boutique']}")
-choix = st.sidebar.radio("Navigation", ["🛒 Vente & Panier", "📦 Stock", "⚙️ Paramètres"])
+st.sidebar.title(f"🏢 {conf['boutique']}")
+menu = ["🛒 Panier de Vente", "📦 Stock & Réappro.", "💸 Dépenses", "📊 Historique", "⚙️ Paramètres"]
+choix = st.sidebar.radio("Navigation", menu)
 
-# Initialisation du panier dans la session Streamlit
-if 'panier' not in st.session_state:
-    st.session_state.panier = []
+if 'panier' not in st.session_state: st.session_state.panier = []
 
-if choix == "🛒 Vente & Panier":
-    st.header("🛒 Nouveau Panier d'Achats")
-    
+# --- 1. VENTE ---
+if choix == "🛒 Panier de Vente":
+    st.header("🛒 Nouvelle Vente Groupée")
     col1, col2 = st.columns(2)
-    nom_c = col1.text_input("Nom Client")
-    tel_c = col2.text_input("Téléphone Client")
-    
+    c_nom = col1.text_input("Nom Client *")
+    c_tel = col2.text_input("Téléphone *")
+    c_adr = col1.text_input("Adresse Client")
+    c_mail = col2.text_input("Email Client")
+
     st.divider()
-    
-    # Sélection des produits
-    conn = sqlite3.connect('venteup_v3.db')
+    conn = sqlite3.connect('venteup_final.db')
     prods = conn.execute("SELECT nom, p_vente, stock FROM produits WHERE stock > 0").fetchall()
     conn.close()
     
-    p_noms = [p[0] for p in prods]
-    p_sel = st.selectbox("Choisir un produit à ajouter", [""] + p_noms)
-    
+    p_sel = st.selectbox("Choisir un article", [""] + [p[0] for p in prods])
     if p_sel:
-        p_info = next(p for p in prods if p[0] == p_sel)
-        qte_v = st.number_input("Quantité", min_value=1, max_value=p_info[2], value=1)
-        if st.button("➕ Ajouter au panier"):
-            st.session_state.panier.append({
-                "nom": p_sel,
-                "prix_unitaire": p_info[1],
-                "qte": qte_v,
-                "total": p_info[1] * qte_v
-            })
-            st.success(f"{p_sel} ajouté !")
+        info = next(p for p in prods if p[0] == p_sel)
+        qte = st.number_input("Quantité", min_value=1, max_value=info[2], value=1)
+        if st.button("➕ Ajouter au Panier"):
+            st.session_state.panier.append({"nom": p_sel, "qte": qte, "total": info[1]*qte})
 
-    # Affichage du Panier
     if st.session_state.panier:
-        st.subheader("📝 Contenu du panier")
-        total_global = 0
-        for i, item in enumerate(st.session_state.panier):
-            st.write(f"**{item['nom']}** | Quantité: {item['qte']} | Total: {item['total']} GNF")
-            total_global += item['total']
+        total_g = sum(item['total'] for item in st.session_state.panier)
+        st.table(st.session_state.panier)
+        st.write(f"### TOTAL : {total_g} GNF")
         
-        st.write(f"### TOTAL GÉNÉRAL : {total_global} GNF")
-        
-        if st.button("✅ Valider la vente et générer la facture Image"):
-            if nom_c:
-                # Génération de l'image
-                client_info = {"nom": nom_c, "tel": tel_c}
-                img_data = generer_facture_image(conf, client_info, st.session_state.panier, total_global)
-                
-                st.image(img_data, caption="Facture générée")
-                st.download_button("📥 Télécharger la facture (IMAGE)", img_data, f"Facture_{nom_c}.png", "image/png")
-                
-                # Vider le panier après vente
+        if st.button("✅ Valider & Facture Image"):
+            if c_nom and c_tel:
+                img = generer_facture_img(conf, {"nom": c_nom, "tel": c_tel, "adr": c_adr}, st.session_state.panier, total_g)
+                st.image(img)
+                st.download_button("📥 Télécharger la Facture (IMAGE)", img, f"Facture_{c_nom}.png", "image/png")
                 st.session_state.panier = []
-                st.success("Vente enregistrée !")
-            else:
-                st.error("Entrez le nom du client !")
+            else: st.error("Renseignez le nom et le numéro du client !")
 
-elif choix == "📦 Stock":
-    st.header("📦 Gestion du Stock")
-    with st.form("add_p"):
-        n = st.text_input("Nom du produit").upper()
+# --- 2. STOCK ---
+elif choix == "📦 Stock & Réappro.":
+    st.header("📦 Gestion des Produits")
+    with st.form("form_stock"):
+        n = st.text_input("Désignation").upper()
         pa = st.number_input("Prix Achat")
         pv = st.number_input("Prix Vente")
-        q = st.number_input("Quantité", min_value=1)
-        if st.form_submit_button("Enregistrer"):
-            with sqlite3.connect('venteup_v3.db') as conn:
-                conn.execute("INSERT OR REPLACE INTO produits (nom, p_achat, p_vente, stock) VALUES (?,?,?,?)", (n, pa, pv, q))
-            st.success("Produit ajouté !")
+        q = st.number_input("Quantité")
+        if st.form_submit_button("Enregistrer / Réapprovisionner"):
+            with sqlite3.connect('venteup_final.db') as conn:
+                conn.execute("INSERT OR REPLACE INTO produits (nom, p_achat, p_vente, stock) VALUES (?,?,?,?)", (n,pa,pv,q))
+            st.success("Stock mis à jour !")
 
+# --- 3. DEPENSES ---
+elif choix == "💸 Dépenses":
+    st.header("💸 Suivi des Frais")
+    with st.form("f_dep"):
+        motif = st.text_input("Motif (Loyer, Transport...)")
+        montant = st.number_input("Montant")
+        if st.form_submit_button("Enregistrer Dépense"):
+            with sqlite3.connect('venteup_final.db') as conn:
+                conn.execute("INSERT INTO depenses (motif, montant, date) VALUES (?,?,?)", (motif, montant, datetime.now().strftime("%d/%m/%Y")))
+            st.success("Dépense enregistrée !")
+
+# --- 4. PARAMETRES ---
 elif choix == "⚙️ Paramètres":
     st.header("⚙️ Paramètres Boutique")
-    # Formulaire de mise à jour (comme vu précédemment)
+    with st.form("f_conf"):
+        b = st.text_input("Nom Boutique", value=conf['boutique'])
+        g = st.text_input("Gérant", value=conf['gerant'])
+        t = st.text_input("Téléphone", value=conf['tel'])
+        m = st.text_input("Mail", value=conf['mail'])
+        a = st.text_input("Adresse", value=conf['adr'])
+        if st.form_submit_button("Sauvegarder"):
+            with sqlite3.connect('venteup_final.db') as conn:
+                conn.execute("UPDATE config SET boutique=?, gerant=?, tel=?, mail=?, adresse=? WHERE id=1", (b,g,t,m,a))
+            st.rerun()
